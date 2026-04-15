@@ -25,7 +25,6 @@ export async function tasksRoutes(app: FastifyInstance) {
     return tasksService.listTasks({
       initiativeId: typeof query.initiativeId === 'string' ? query.initiativeId : undefined,
       status,
-      includeDeleted: query.includeDeleted === 'true',
     });
   });
 

@@ -16,7 +16,6 @@ export const goals = sqliteTable('goals', {
   sortOrder: integer('sort_order').default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  deletedAt: text('deleted_at'),
 });
 
 export const initiatives = sqliteTable('initiatives', {
@@ -34,7 +33,6 @@ export const initiatives = sqliteTable('initiatives', {
   sortOrder: integer('sort_order').default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  deletedAt: text('deleted_at'),
 });
 
 export const weekPlans = sqliteTable('week_plans', {
@@ -95,7 +93,6 @@ export const tasks = sqliteTable('tasks', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
-  deletedAt: text('deleted_at'),
 });
 
 export const taskRequirements = sqliteTable('task_requirements', {

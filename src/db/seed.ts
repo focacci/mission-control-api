@@ -153,7 +153,6 @@ async function importGoals(): Promise<Map<string, string>> {
         sortOrder: 0,
         createdAt: meta['created'] ?? today(),
         updatedAt: now(),
-        deletedAt: null,
       });
       console.log(`  ✓ Goal: ${displayName}`);
       count++;
@@ -218,7 +217,6 @@ async function importInitiatives(goalNameToId: Map<string, string>): Promise<Map
         sortOrder: 0,
         createdAt: meta['created'] ?? today(),
         updatedAt: now(),
-        deletedAt: null,
       });
       console.log(`  ✓ Initiative: ${displayName}`);
       count++;
@@ -296,7 +294,6 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
         createdAt: meta['created'] ?? today(),
         updatedAt: now(),
         completedAt,
-        deletedAt: null,
       });
 
       // Import requirements

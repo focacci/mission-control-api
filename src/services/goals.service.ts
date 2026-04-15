@@ -1,10 +1,9 @@
-import { eq, isNull, and, sql, asc, inArray } from 'drizzle-orm';
+import { eq, and, sql, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import { goals, initiatives, tasks } from '../db/schema.js';
 import {
   FOCUS_ICONS,
-  FOCUS_ORDER,
   now,
   deriveDisplayName,
   notFound,
@@ -35,13 +34,8 @@ END`;
 
 export async function listGoals(opts: {
   focus?: string;
-  includeDeleted?: boolean;
 }) {
   const conditions = [];
-
-  if (!opts.includeDeleted) {
-    conditions.push(isNull(goals.deletedAt));
-  }
 
   if (opts.focus) {
     const validFocus = ['sprint', 'steady', 'simmer', 'dormant'];
@@ -65,7 +59,7 @@ export async function getGoal(id: string) {
   const goalInitiatives = await db
     .select()
     .from(initiatives)
-    .where(and(eq(initiatives.goalId, id), isNull(initiatives.deletedAt)))
+    .where(eq(initiatives.goalId, id))
     .orderBy(asc(initiatives.sortOrder));
 
   return { ...goal, initiatives: goalInitiatives };
@@ -88,7 +82,6 @@ export async function createGoal(input: CreateGoalInput) {
     sortOrder: 0,
     createdAt: new Date().toISOString().slice(0, 10),
     updatedAt: now(),
-    deletedAt: null,
   };
 
   await db.insert(goals).values(goal);
@@ -98,7 +91,6 @@ export async function createGoal(input: CreateGoalInput) {
 export async function updateGoal(id: string, input: UpdateGoalInput) {
   const [existing] = await db.select().from(goals).where(eq(goals.id, id));
   if (!existing) throw notFound('Goal', id);
-  if (existing.deletedAt) throw new AppError(410, `Goal has been deleted: ${id}`);
 
   const emoji = input.emoji ?? existing.emoji;
   const name = input.name ?? existing.name;
@@ -127,39 +119,29 @@ export async function updateGoal(id: string, input: UpdateGoalInput) {
 export async function deleteGoal(id: string) {
   const [existing] = await db.select().from(goals).where(eq(goals.id, id));
   if (!existing) throw notFound('Goal', id);
-  if (existing.deletedAt) return; // already deleted — idempotent
-
-  const deletedAt = now();
 
   await db.transaction(async tx => {
-    // Find all active initiatives under this goal
+    // Find all initiatives under this goal
     const goalInitiatives = await tx
       .select({ id: initiatives.id })
       .from(initiatives)
-      .where(and(eq(initiatives.goalId, id), isNull(initiatives.deletedAt)));
+      .where(eq(initiatives.goalId, id));
 
     const initiativeIds = goalInitiatives.map(i => i.id);
 
-    // Cascade: soft-delete tasks under those initiatives
+    // Cascade: hard-delete tasks under those initiatives
     if (initiativeIds.length > 0) {
       await tx
-        .update(tasks)
-        .set({ deletedAt, updatedAt: deletedAt })
-        .where(
-          and(
-            inArray(tasks.initiativeId, initiativeIds),
-            isNull(tasks.deletedAt),
-          ),
-        );
+        .delete(tasks)
+        .where(inArray(tasks.initiativeId, initiativeIds));
 
-      // Soft-delete initiatives
+      // Hard-delete initiatives
       await tx
-        .update(initiatives)
-        .set({ deletedAt, updatedAt: deletedAt })
+        .delete(initiatives)
         .where(inArray(initiatives.id, initiativeIds));
     }
 
-    // Soft-delete the goal
-    await tx.update(goals).set({ deletedAt, updatedAt: deletedAt }).where(eq(goals.id, id));
+    // Hard-delete the goal
+    await tx.delete(goals).where(eq(goals.id, id));
   });
 }

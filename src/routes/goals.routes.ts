@@ -11,7 +11,6 @@ export async function goalsRoutes(app: FastifyInstance) {
     const query = request.query as Record<string, string | undefined>;
     return goalsService.listGoals({
       focus: query.focus,
-      includeDeleted: query.includeDeleted === 'true',
     });
   });
 

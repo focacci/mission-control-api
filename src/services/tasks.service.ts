@@ -1,4 +1,4 @@
-import { eq, isNull, and, asc, inArray } from 'drizzle-orm';
+import { eq, and, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import { goals, initiatives, tasks, taskRequirements, taskTests, taskOutputs } from '../db/schema.js';
@@ -70,13 +70,8 @@ async function deriveTaskEmoji(initiativeId?: string): Promise<string> {
 export async function listTasks(opts: {
   initiativeId?: string;
   status?: string | string[];
-  includeDeleted?: boolean;
 }) {
   const conditions = [];
-
-  if (!opts.includeDeleted) {
-    conditions.push(isNull(tasks.deletedAt));
-  }
 
   if (opts.initiativeId) {
     conditions.push(eq(tasks.initiativeId, opts.initiativeId));
@@ -165,7 +160,6 @@ export async function createTask(input: CreateTaskInput) {
     createdAt,
     updatedAt,
     completedAt: null,
-    deletedAt: null,
   };
 
   await db.transaction(async tx => {
@@ -204,7 +198,6 @@ export async function createTask(input: CreateTaskInput) {
 export async function updateTask(id: string, input: UpdateTaskInput) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
-  if (existing.deletedAt) throw new AppError(410, `Task has been deleted: ${id}`);
 
   const emoji = existing.emoji;
   const name = input.name ?? existing.name;
@@ -227,7 +220,6 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
 export async function startTask(id: string) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
-  if (existing.deletedAt) throw new AppError(410, `Task has been deleted: ${id}`);
 
   if (existing.status === 'done' || existing.status === 'cancelled') {
     throw new AppError(409, `Cannot start a task with status '${existing.status}'`);
@@ -244,7 +236,6 @@ export async function startTask(id: string) {
 export async function doneTask(id: string, input: DoneTaskInput) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
-  if (existing.deletedAt) throw new AppError(410, `Task has been deleted: ${id}`);
 
   if (existing.status === 'cancelled') {
     throw new AppError(409, `Cannot complete a cancelled task`);
@@ -291,7 +282,6 @@ export async function doneTask(id: string, input: DoneTaskInput) {
 export async function blockTask(id: string, input: BlockTaskInput) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
-  if (existing.deletedAt) throw new AppError(410, `Task has been deleted: ${id}`);
 
   if (existing.status === 'done' || existing.status === 'cancelled') {
     throw new AppError(409, `Cannot block a task with status '${existing.status}'`);
@@ -308,7 +298,6 @@ export async function blockTask(id: string, input: BlockTaskInput) {
 export async function cancelTask(id: string) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
-  if (existing.deletedAt) throw new AppError(410, `Task has been deleted: ${id}`);
 
   if (existing.status === 'done') {
     throw new AppError(409, `Cannot cancel a completed task`);
@@ -325,13 +314,8 @@ export async function cancelTask(id: string) {
 export async function deleteTask(id: string) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
-  if (existing.deletedAt) return; // idempotent
 
-  const deletedAt = now();
-  await db
-    .update(tasks)
-    .set({ deletedAt, updatedAt: deletedAt })
-    .where(eq(tasks.id, id));
+  await db.delete(tasks).where(eq(tasks.id, id));
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +325,6 @@ export async function deleteTask(id: string) {
 export async function addRequirement(taskId: string, description: string) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) throw notFound('Task', taskId);
-  if (task.deletedAt) throw new AppError(410, `Task has been deleted: ${taskId}`);
 
   const existing = await db
     .select()
@@ -408,7 +391,6 @@ export async function deleteRequirement(taskId: string, reqId: string) {
 export async function addTest(taskId: string, description: string) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) throw notFound('Task', taskId);
-  if (task.deletedAt) throw new AppError(410, `Task has been deleted: ${taskId}`);
 
   const existing = await db
     .select()
@@ -468,7 +450,6 @@ export async function deleteTest(taskId: string, testId: string) {
 export async function addOutput(taskId: string, label: string, url?: string) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) throw notFound('Task', taskId);
-  if (task.deletedAt) throw new AppError(410, `Task has been deleted: ${taskId}`);
 
   const output = {
     id: nanoid(),

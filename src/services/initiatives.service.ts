@@ -1,4 +1,4 @@
-import { eq, isNull, and, asc, inArray } from 'drizzle-orm';
+import { eq, and, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import { goals, initiatives, tasks } from '../db/schema.js';
@@ -18,13 +18,8 @@ import {
 export async function listInitiatives(opts: {
   goalId?: string;
   status?: string;
-  includeDeleted?: boolean;
 }) {
   const conditions = [];
-
-  if (!opts.includeDeleted) {
-    conditions.push(isNull(initiatives.deletedAt));
-  }
 
   if (opts.goalId) {
     conditions.push(eq(initiatives.goalId, opts.goalId));
@@ -59,11 +54,11 @@ export async function getInitiative(id: string) {
     ? (await db.select().from(goals).where(eq(goals.id, initiative.goalId)))[0] ?? null
     : null;
 
-  // Load tasks (active only by default)
+  // Load tasks
   const initiativeTasks = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.initiativeId, id), isNull(tasks.deletedAt)))
+    .where(eq(tasks.initiativeId, id))
     .orderBy(asc(tasks.sortOrder));
 
   return { ...initiative, goal, tasks: initiativeTasks };
@@ -83,7 +78,6 @@ export async function createInitiative(input: CreateInitiativeInput) {
     sortOrder: 0,
     createdAt: new Date().toISOString().slice(0, 10),
     updatedAt: now(),
-    deletedAt: null,
   };
 
   await db.insert(initiatives).values(initiative);
@@ -93,7 +87,6 @@ export async function createInitiative(input: CreateInitiativeInput) {
 export async function updateInitiative(id: string, input: UpdateInitiativeInput) {
   const [existing] = await db.select().from(initiatives).where(eq(initiatives.id, id));
   if (!existing) throw notFound('Initiative', id);
-  if (existing.deletedAt) throw new AppError(410, `Initiative has been deleted: ${id}`);
 
   const emoji = input.emoji ?? existing.emoji;
   const name = input.name ?? existing.name;
@@ -119,7 +112,6 @@ export async function updateInitiative(id: string, input: UpdateInitiativeInput)
 export async function completeInitiative(id: string) {
   const [existing] = await db.select().from(initiatives).where(eq(initiatives.id, id));
   if (!existing) throw notFound('Initiative', id);
-  if (existing.deletedAt) throw new AppError(410, `Initiative has been deleted: ${id}`);
 
   const timestamp = now();
 
@@ -130,7 +122,6 @@ export async function completeInitiative(id: string) {
     .where(
       and(
         eq(tasks.initiativeId, id),
-        isNull(tasks.deletedAt),
         inArray(tasks.status, ['pending', 'assigned', 'in-progress', 'blocked']),
       ),
     );
@@ -147,20 +138,15 @@ export async function completeInitiative(id: string) {
 export async function deleteInitiative(id: string) {
   const [existing] = await db.select().from(initiatives).where(eq(initiatives.id, id));
   if (!existing) throw notFound('Initiative', id);
-  if (existing.deletedAt) return; // idempotent
-
-  const deletedAt = now();
 
   await db.transaction(async tx => {
-    // Cascade: soft-delete tasks
+    // Cascade: hard-delete tasks
     await tx
-      .update(tasks)
-      .set({ deletedAt, updatedAt: deletedAt })
-      .where(and(eq(tasks.initiativeId, id), isNull(tasks.deletedAt)));
+      .delete(tasks)
+      .where(eq(tasks.initiativeId, id));
 
     await tx
-      .update(initiatives)
-      .set({ deletedAt, updatedAt: deletedAt })
+      .delete(initiatives)
       .where(eq(initiatives.id, id));
   });
 }
