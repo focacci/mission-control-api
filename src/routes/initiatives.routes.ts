@@ -1,12 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import {
-  listInitiatives,
-  getInitiative,
-  createInitiative,
-  updateInitiative,
-  completeInitiative,
-  deleteInitiative,
-} from '../services/initiatives.service.js';
+import * as initiativesService from '../services/initiatives.service.js';
 import {
   CreateInitiativeSchema,
   UpdateInitiativeSchema,
@@ -16,7 +9,7 @@ export async function initiativesRoutes(app: FastifyInstance) {
   // GET /api/initiatives
   app.get('/api/initiatives', async request => {
     const query = request.query as Record<string, string | undefined>;
-    return listInitiatives({
+    return initiativesService.listInitiatives({
       goalId: query.goalId,
       status: query.status,
       includeDeleted: query.includeDeleted === 'true',
@@ -26,13 +19,13 @@ export async function initiativesRoutes(app: FastifyInstance) {
   // GET /api/initiatives/:id
   app.get('/api/initiatives/:id', async request => {
     const { id } = request.params as { id: string };
-    return getInitiative(id);
+    return initiativesService.getInitiative(id);
   });
 
   // POST /api/initiatives
   app.post('/api/initiatives', async (request, reply) => {
     const parsed = CreateInitiativeSchema.parse(request.body);
-    const initiative = await createInitiative(parsed);
+    const initiative = await initiativesService.createInitiative(parsed);
     return reply.status(201).send(initiative);
   });
 
@@ -40,19 +33,19 @@ export async function initiativesRoutes(app: FastifyInstance) {
   app.patch('/api/initiatives/:id', async request => {
     const { id } = request.params as { id: string };
     const parsed = UpdateInitiativeSchema.parse(request.body);
-    return updateInitiative(id, parsed);
+    return initiativesService.updateInitiative(id, parsed);
   });
 
   // POST /api/initiatives/:id/complete
   app.post('/api/initiatives/:id/complete', async request => {
     const { id } = request.params as { id: string };
-    return completeInitiative(id);
+    return initiativesService.completeInitiative(id);
   });
 
   // DELETE /api/initiatives/:id
   app.delete('/api/initiatives/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    await deleteInitiative(id);
+    await initiativesService.deleteInitiative(id);
     return reply.status(204).send();
   });
 }
