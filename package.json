@@ -1,0 +1,31 @@
+{
+  "name": "mission-control-api",
+  "version": "1.0.0",
+  "description": "Autonomous task/goal/schedule management API",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "migrate": "drizzle-kit migrate",
+    "generate": "drizzle-kit generate",
+    "seed": "tsx src/db/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10",
+    "better-sqlite3": "^11",
+    "dotenv": "^16",
+    "drizzle-orm": "^0.39",
+    "fastify": "^5",
+    "nanoid": "^5",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7",
+    "@types/node": "^22",
+    "drizzle-kit": "^0.30",
+    "tsx": "^4",
+    "typescript": "^5.7"
+  }
+}
