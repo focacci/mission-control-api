@@ -12,7 +12,6 @@ export async function initiativesRoutes(app: FastifyInstance) {
     return initiativesService.listInitiatives({
       goalId: query.goalId,
       status: query.status,
-      includeDeleted: query.includeDeleted === 'true',
     });
   });
 

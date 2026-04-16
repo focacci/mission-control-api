@@ -139,14 +139,10 @@ export async function deleteInitiative(id: string) {
   const [existing] = await db.select().from(initiatives).where(eq(initiatives.id, id));
   if (!existing) throw notFound('Initiative', id);
 
-  await db.transaction(async tx => {
+  db.transaction(tx => {
     // Cascade: hard-delete tasks
-    await tx
-      .delete(tasks)
-      .where(eq(tasks.initiativeId, id));
+    tx.delete(tasks).where(eq(tasks.initiativeId, id)).run();
 
-    await tx
-      .delete(initiatives)
-      .where(eq(initiatives.id, id));
+    tx.delete(initiatives).where(eq(initiatives.id, id)).run();
   });
 }

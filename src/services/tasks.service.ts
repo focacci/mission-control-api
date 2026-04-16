@@ -162,12 +162,12 @@ export async function createTask(input: CreateTaskInput) {
     completedAt: null,
   };
 
-  await db.transaction(async tx => {
-    await tx.insert(tasks).values(task);
+  db.transaction(tx => {
+    tx.insert(tasks).values(task).run();
 
     // Insert requirements
     if (input.requirements && input.requirements.length > 0) {
-      await tx.insert(taskRequirements).values(
+      tx.insert(taskRequirements).values(
         input.requirements.map((desc, i) => ({
           id: nanoid(),
           taskId: task.id,
@@ -175,12 +175,12 @@ export async function createTask(input: CreateTaskInput) {
           completed: false,
           sortOrder: i,
         })),
-      );
+      ).run();
     }
 
     // Insert tests
     if (input.tests && input.tests.length > 0) {
-      await tx.insert(taskTests).values(
+      tx.insert(taskTests).values(
         input.tests.map((desc, i) => ({
           id: nanoid(),
           taskId: task.id,
@@ -188,7 +188,7 @@ export async function createTask(input: CreateTaskInput) {
           passed: false,
           sortOrder: i,
         })),
-      );
+      ).run();
     }
   });
 
@@ -256,15 +256,15 @@ export async function doneTask(id: string, input: DoneTaskInput) {
 
   const completedAt = now();
 
-  await db.transaction(async tx => {
-    await tx
-      .update(tasks)
+  db.transaction(tx => {
+    tx.update(tasks)
       .set({ status: 'done', summary: input.summary, completedAt, updatedAt: completedAt })
-      .where(eq(tasks.id, id));
+      .where(eq(tasks.id, id))
+      .run();
 
     // Insert outputs
     if (input.outputs && input.outputs.length > 0) {
-      await tx.insert(taskOutputs).values(
+      tx.insert(taskOutputs).values(
         input.outputs.map(o => ({
           id: nanoid(),
           taskId: id,
@@ -272,7 +272,7 @@ export async function doneTask(id: string, input: DoneTaskInput) {
           url: o.url ?? null,
           createdAt: completedAt,
         })),
-      );
+      ).run();
     }
   });
 

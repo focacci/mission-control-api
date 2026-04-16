@@ -120,28 +120,25 @@ export async function deleteGoal(id: string) {
   const [existing] = await db.select().from(goals).where(eq(goals.id, id));
   if (!existing) throw notFound('Goal', id);
 
-  await db.transaction(async tx => {
+  db.transaction(tx => {
     // Find all initiatives under this goal
-    const goalInitiatives = await tx
+    const goalInitiatives = tx
       .select({ id: initiatives.id })
       .from(initiatives)
-      .where(eq(initiatives.goalId, id));
+      .where(eq(initiatives.goalId, id))
+      .all();
 
     const initiativeIds = goalInitiatives.map(i => i.id);
 
     // Cascade: hard-delete tasks under those initiatives
     if (initiativeIds.length > 0) {
-      await tx
-        .delete(tasks)
-        .where(inArray(tasks.initiativeId, initiativeIds));
+      tx.delete(tasks).where(inArray(tasks.initiativeId, initiativeIds)).run();
 
       // Hard-delete initiatives
-      await tx
-        .delete(initiatives)
-        .where(inArray(initiatives.id, initiativeIds));
+      tx.delete(initiatives).where(inArray(initiatives.id, initiativeIds)).run();
     }
 
     // Hard-delete the goal
-    await tx.delete(goals).where(eq(goals.id, id));
+    tx.delete(goals).where(eq(goals.id, id)).run();
   });
 }
