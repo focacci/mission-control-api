@@ -114,6 +114,7 @@ export const DoneTaskSchema = z.object({
   summary: z.string().min(1),
   outputs: z
     .array(z.object({ label: z.string().min(1), url: z.string().optional() }))
+    .nullable()
     .optional()
     .default([]),
 });

@@ -205,7 +205,7 @@ Used by `POST /api/tasks/:id/done`.
 ```ts
 {
   summary: string (min 1),
-  outputs?: Array<{ label: string, url?: string }>,  // default: []
+  outputs?: Array<{ label: string, url?: string }> | null,  // default: []
 }
 ```
 
