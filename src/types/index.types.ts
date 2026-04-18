@@ -27,7 +27,7 @@ export function now(): string {
 }
 
 export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 }
 
 export function deriveDisplayName(emoji: string, name: string): string {

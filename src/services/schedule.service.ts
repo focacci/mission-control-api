@@ -4,6 +4,7 @@ import { db } from '../db/client.js';
 import { goals, tasks, weekPlans, scheduleSlots, weekGoalAllocations } from '../db/schema.js';
 import {
   now,
+  today,
   AppError,
   notFound,
   type UpdateSlotInput,
@@ -54,7 +55,7 @@ function slotType(
 // ---------------------------------------------------------------------------
 
 export async function getTodaySlots() {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = today();
   const weekStart = getSundayOf(date);
 
   const [plan] = await db

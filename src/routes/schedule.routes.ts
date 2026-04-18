@@ -6,6 +6,7 @@ import {
   DoneSlotSchema,
   SkipSlotSchema,
   AssignTaskSchema,
+  today,
 } from '../types/index.types.js';
 
 export async function scheduleRoutes(app: FastifyInstance) {
@@ -17,7 +18,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
   // GET /api/schedule/week?weekStart=YYYY-MM-DD
   app.get('/api/schedule/week', async request => {
     const query = request.query as Record<string, string | undefined>;
-    const weekStart = query.weekStart ?? new Date().toISOString().slice(0, 10);
+    const weekStart = query.weekStart ?? today();
     return scheduleService.getWeekSlots(weekStart);
   });
 
