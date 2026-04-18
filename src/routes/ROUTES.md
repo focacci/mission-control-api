@@ -11,6 +11,8 @@
   - [Requirements Sub-Routes](#requirements-sub-routes)
   - [Tests Sub-Routes](#tests-sub-routes)
   - [Outputs Sub-Routes](#outputs-sub-routes)
+- [Schedule](#schedule)
+- [Board](#board)
 - [Error Handling](#error-handling)
 
 ---
@@ -118,6 +120,44 @@ Full CRUD plus lifecycle actions and three sub-resource collections (requirement
 |--------|------|-------------|------|
 | `POST` | `/api/tasks/:id/outputs` | Add an output artifact | `{ label, url? }` |
 | `DELETE` | `/api/tasks/:taskId/outputs/:outputId` | Remove an output | — |
+
+---
+
+## Schedule
+
+Week plan generation, slot queries, and slot lifecycle management.
+
+| Method | Path | Description | Body / Query | Response |
+|--------|------|-------------|-------------|----------|
+| `GET` | `/api/schedule/today` | Get all slots for today (with task detail) | — | `SlotWithTask[]` (empty array if no plan for this week) |
+| `GET` | `/api/schedule/week` | Get all slots for a week | `?weekStart=YYYY-MM-DD` (defaults to current week) | `{ weekPlan, slots: SlotWithTask[], allocations: WeekGoalAllocation[] }` |
+| `POST` | `/api/schedule/generate` | Generate a new week plan | `{ weekStart?: string }` (defaults to current week's Sunday) | `201 { weekPlan, slots, allocations }` |
+| `POST` | `/api/schedule/sync` | (stub) Write-through to Obsidian SCHEDULE.md | — | `{ synced: false, message }` |
+| `PATCH` | `/api/schedule/slots/:id` | Update a slot | `{ status?, taskId?, note? }` | `ScheduleSlot` |
+| `POST` | `/api/schedule/slots/:id/done` | Mark slot done | `{ note? }` | `ScheduleSlot` |
+| `POST` | `/api/schedule/slots/:id/skip` | Skip slot | `{ reason? }` | `ScheduleSlot` |
+| `POST` | `/api/schedule/assign` | Assign a task to a slot | `{ taskId, slotId }` | `ScheduleSlot` |
+
+**Notes:**
+- `POST /generate` returns `409` if a plan already exists for that week.
+- `POST /assign` sets `slot.type = 'task'`, `slot.status = 'pending'`, `task.status = 'assigned'`, and `task.slotId` in a transaction.
+- Week start is always normalized to the Sunday of the given date before querying/inserting.
+
+---
+
+## Board
+
+Unified board view and Obsidian refresh.
+
+| Method | Path | Description | Response |
+|--------|------|-------------|----------|
+| `GET` | `/api/board` | Full board: goals → initiatives → tasks, stats, current week summary | `{ goals: GoalWithHierarchy[], stats, weekSummary \| null }` |
+| `POST` | `/api/board/refresh` | (stub) Regenerate Obsidian Board.md | `{ refreshed: false, message }` |
+
+**Board response shape:**
+- `goals[].initiatives[].tasks[]` — full hierarchy
+- `stats` — `{ total, pending, assigned, inProgress, done, blocked, cancelled }`
+- `weekSummary` — `{ weekPlan, totalSlots, taskSlots, doneSlots, skippedSlots, pendingSlots, allocations }` or `null` if no plan for current week
 
 ---
 

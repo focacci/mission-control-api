@@ -7,6 +7,8 @@ import { sql } from 'drizzle-orm';
 import { goalsRoutes } from './routes/goals.routes.js';
 import { initiativesRoutes } from './routes/initiatives.routes.js';
 import { tasksRoutes } from './routes/tasks.routes.js';
+import { scheduleRoutes } from './routes/schedule.routes.js';
+import { boardRoutes } from './routes/board.routes.js';
 import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
 
@@ -52,6 +54,8 @@ app.get('/health', async () => {
 await app.register(goalsRoutes);
 await app.register(initiativesRoutes);
 await app.register(tasksRoutes);
+await app.register(scheduleRoutes);
+await app.register(boardRoutes);
 
 // ---------------------------------------------------------------------------
 // Start
@@ -63,6 +67,8 @@ try {
   app.log.info(`Goals:        http://localhost:${PORT}/api/goals`);
   app.log.info(`Initiatives:  http://localhost:${PORT}/api/initiatives`);
   app.log.info(`Tasks:        http://localhost:${PORT}/api/tasks`);
+  app.log.info(`Schedule:     http://localhost:${PORT}/api/schedule/today`);
+  app.log.info(`Board:        http://localhost:${PORT}/api/board`);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

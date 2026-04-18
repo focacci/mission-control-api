@@ -19,6 +19,7 @@
   - [Requirement Schemas](#requirement-schemas)
   - [Test Schemas](#test-schemas)
   - [Output Schema](#output-schema)
+  - [Schedule Schemas](#schedule-schemas)
 - [Inferred TypeScript Types](#inferred-typescript-types)
 
 ---
@@ -263,6 +264,44 @@ Used by `POST /api/tasks/:id/block`.
 
 ---
 
+### Schedule Schemas
+
+#### `GenerateWeekPlanSchema`
+
+```ts
+{ weekStart?: string }  // YYYY-MM-DD; defaults to current week's Sunday if omitted
+```
+
+#### `UpdateSlotSchema`
+
+```ts
+{
+  status?: 'pending' | 'in-progress' | 'done' | 'skipped',
+  taskId?: string | null,
+  note?: string | null,
+}
+```
+
+#### `DoneSlotSchema`
+
+```ts
+{ note?: string }
+```
+
+#### `SkipSlotSchema`
+
+```ts
+{ reason?: string }
+```
+
+#### `AssignTaskSchema`
+
+```ts
+{ taskId: string (min 1), slotId: string (min 1) }
+```
+
+---
+
 ## Inferred TypeScript Types
 
 These are derived from the Zod schemas via `z.infer<>` and used as function parameter types in service files.
@@ -277,3 +316,8 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `UpdateTaskInput` | `UpdateTaskSchema` |
 | `DoneTaskInput` | `DoneTaskSchema` |
 | `BlockTaskInput` | `BlockTaskSchema` |
+| `GenerateWeekPlanInput` | `GenerateWeekPlanSchema` |
+| `UpdateSlotInput` | `UpdateSlotSchema` |
+| `DoneSlotInput` | `DoneSlotSchema` |
+| `SkipSlotInput` | `SkipSlotSchema` |
+| `AssignTaskInput` | `AssignTaskSchema` |

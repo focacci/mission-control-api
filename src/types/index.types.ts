@@ -149,6 +149,30 @@ export const AddOutputSchema = z.object({
   url: z.string().optional(),
 });
 
+// Schedule
+export const GenerateWeekPlanSchema = z.object({
+  weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+export const UpdateSlotSchema = z.object({
+  status: z.enum(['pending', 'in-progress', 'done', 'skipped']).optional(),
+  taskId: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+
+export const DoneSlotSchema = z.object({
+  note: z.string().optional(),
+});
+
+export const SkipSlotSchema = z.object({
+  reason: z.string().optional(),
+});
+
+export const AssignTaskSchema = z.object({
+  taskId: z.string().min(1),
+  slotId: z.string().min(1),
+});
+
 // ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
@@ -161,3 +185,8 @@ export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
 export type DoneTaskInput = z.infer<typeof DoneTaskSchema>;
 export type BlockTaskInput = z.infer<typeof BlockTaskSchema>;
+export type GenerateWeekPlanInput = z.infer<typeof GenerateWeekPlanSchema>;
+export type UpdateSlotInput = z.infer<typeof UpdateSlotSchema>;
+export type DoneSlotInput = z.infer<typeof DoneSlotSchema>;
+export type SkipSlotInput = z.infer<typeof SkipSlotSchema>;
+export type AssignTaskInput = z.infer<typeof AssignTaskSchema>;

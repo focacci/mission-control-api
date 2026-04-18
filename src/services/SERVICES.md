@@ -28,6 +28,16 @@
   - [Requirements](#requirements)
   - [Tests](#tests)
   - [Outputs](#outputs)
+- [Schedule Service](#schedule-service)
+  - [`getTodaySlots`](#gettodayslots)
+  - [`getWeekSlots`](#getweekslotsweestart)
+  - [`generateWeekPlan`](#generateweekplanweestart)
+  - [`updateSlot`](#updateslotid-input)
+  - [`doneSlot`](#doneslotid-input)
+  - [`skipSlot`](#skipslotid-input)
+  - [`assignTask`](#assigntasktaskid-slotid)
+- [Board Service](#board-service)
+  - [`getBoard`](#getboard)
 
 ---
 
@@ -272,3 +282,89 @@ Appends a new output artifact. `url` is optional.
 #### `deleteOutput(taskId, outputId)`
 
 Removes the output. Validates both `taskId` and `outputId` match.
+
+---
+
+## Schedule Service
+
+Manages week plan generation, slot queries, and slot lifecycle.
+
+### `getTodaySlots()`
+
+```ts
+getTodaySlots(): Promise<SlotWithTask[]>
+```
+
+Returns all slots for today's date (derived at call time). Enriches each slot with its linked task row. Returns empty array if no week plan exists for the current week.
+
+### `getWeekSlots(weekStart)`
+
+```ts
+getWeekSlots(weekStart: string): Promise<{ weekPlan, slots: SlotWithTask[], allocations }>
+```
+
+Returns the full week plan, all 84 slots with task enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. Throws `AppError(404)` if no plan exists.
+
+### `generateWeekPlan(weekStart?)`
+
+```ts
+generateWeekPlan(weekStart?: string): Promise<{ weekPlan, slots, allocations }>
+```
+
+Creates a complete week plan:
+1. Normalizes to the Sunday of the given (or current) date.
+2. Throws `AppError(409)` if a plan already exists for that week.
+3. Queries all non-dormant goals.
+4. Computes per-goal slot allocations (sprint 30 / steady 12 / simmer 4, split evenly within each focus level).
+5. Generates 84 slots (12 hours × 7 days). Fixed types: `00:00` → `maintenance`, Sunday `02:00` → `planning`, `08:00`/`12:00`/`20:00` → `brief`. All others → `flex`.
+6. Distributes task-eligible flex slots to goals in allocation order, upgrading them to type `task`.
+7. Pulls pending/assigned tasks for each goal and assigns them to that goal's task slots.
+8. Marks assigned tasks as `status = 'assigned'`.
+9. Persists `weekPlan`, `scheduleSlots`, `weekGoalAllocations`, and task updates in one transaction.
+
+### `updateSlot(id, input)`
+
+```ts
+updateSlot(id: string, input: UpdateSlotInput): Promise<ScheduleSlot>
+```
+
+Generic patch: updates `status`, `taskId`, and/or `note`. Throws `AppError(404)` if slot not found.
+
+### `doneSlot(id, input)`
+
+```ts
+doneSlot(id: string, input: DoneSlotInput): Promise<ScheduleSlot>
+```
+
+Sets `status = 'done'` and optionally sets `note`. Throws `AppError(404)` if not found.
+
+### `skipSlot(id, input)`
+
+```ts
+skipSlot(id: string, input: SkipSlotInput): Promise<ScheduleSlot>
+```
+
+Sets `status = 'skipped'` and stores the reason as `note`. Throws `AppError(404)` if not found.
+
+### `assignTask(taskId, slotId)`
+
+```ts
+assignTask(taskId: string, slotId: string): Promise<ScheduleSlot>
+```
+
+Atomically links a task to a slot: sets `slot.taskId`, `slot.type = 'task'`, `slot.status = 'pending'`; sets `task.slotId` and `task.status = 'assigned'`. Throws `AppError(400)` if the task is `done` or `cancelled`.
+
+---
+
+## Board Service
+
+### `getBoard()`
+
+```ts
+getBoard(): Promise<{ goals: GoalWithHierarchy[], stats, weekSummary | null }>
+```
+
+Returns the full board state:
+- All goals sorted by focus order, each with nested initiatives and their tasks.
+- `stats`: aggregate task counts (`total`, `pending`, `assigned`, `inProgress`, `done`, `blocked`, `cancelled`). Cancelled tasks are excluded from `total`.
+- `weekSummary`: current week plan with slot counts, or `null` if no plan for this week.
