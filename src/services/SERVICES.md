@@ -36,6 +36,7 @@
   - [`doneSlot`](#doneslotid-input)
   - [`skipSlot`](#skipslotid-input)
   - [`assignTask`](#assigntasktaskid-slotid)
+  - [`unassignTask`](#unassigntaskslotid)
 - [Board Service](#board-service)
   - [`getBoard`](#getboard)
 
@@ -353,6 +354,14 @@ assignTask(taskId: string, slotId: string): Promise<ScheduleSlot>
 ```
 
 Atomically links a task to a slot: sets `slot.taskId`, `slot.type = 'task'`, `slot.status = 'pending'`; sets `task.slotId` and `task.status = 'assigned'`. Throws `AppError(400)` if the task is `done` or `cancelled`.
+
+### `unassignTask(slotId)`
+
+```ts
+unassignTask(slotId: string): Promise<ScheduleSlot>
+```
+
+Atomically removes a task from a slot: clears `slot.taskId`, resets `slot.status = 'pending'` (type and goalId are preserved); clears `task.slotId` and resets `task.status = 'pending'`. Throws `AppError(400)` if the slot has no assigned task.
 
 ---
 

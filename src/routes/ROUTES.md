@@ -137,10 +137,12 @@ Week plan generation, slot queries, and slot lifecycle management.
 | `POST` | `/api/schedule/slots/:id/done` | Mark slot done | `{ note? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/slots/:id/skip` | Skip slot | `{ reason? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/assign` | Assign a task to a slot | `{ taskId, slotId }` | `ScheduleSlot` |
+| `DELETE` | `/api/schedule/slots/:id/task` | Unassign the task from a slot | — | `ScheduleSlot` |
 
 **Notes:**
 - `POST /generate` returns `409` if a plan already exists for that week.
 - `POST /assign` sets `slot.type = 'task'`, `slot.status = 'pending'`, `task.status = 'assigned'`, and `task.slotId` in a transaction.
+- `DELETE /slots/:id/task` returns `400` if the slot has no assigned task. Clears `slot.taskId`, resets `slot.status = 'pending'`, and resets `task.status = 'pending'` + clears `task.slotId` in a transaction.
 - Week start is always normalized to the Sunday of the given date before querying/inserting.
 
 ---

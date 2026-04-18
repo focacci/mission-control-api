@@ -316,6 +316,29 @@ export async function skipSlot(id: string, input: SkipSlotInput) {
   return updated;
 }
 
+export async function unassignTask(slotId: string) {
+  const [slot] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
+  if (!slot) throw notFound('ScheduleSlot', slotId);
+  if (!slot.taskId) throw new AppError(400, 'Slot has no assigned task');
+
+  const taskId = slot.taskId;
+
+  db.transaction(tx => {
+    tx.update(scheduleSlots)
+      .set({ taskId: null, status: 'pending' })
+      .where(eq(scheduleSlots.id, slotId))
+      .run();
+
+    tx.update(tasks)
+      .set({ slotId: null, status: 'pending', updatedAt: now() })
+      .where(eq(tasks.id, taskId))
+      .run();
+  });
+
+  const [updated] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
+  return updated;
+}
+
 export async function assignTask(taskId: string, slotId: string) {
   const [slot] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
   if (!slot) throw notFound('ScheduleSlot', slotId);

@@ -60,4 +60,10 @@ export async function scheduleRoutes(app: FastifyInstance) {
     const parsed = AssignTaskSchema.parse(request.body);
     return scheduleService.assignTask(parsed.taskId, parsed.slotId);
   });
+
+  // DELETE /api/schedule/slots/:id/task
+  app.delete('/api/schedule/slots/:id/task', async request => {
+    const { id } = request.params as { id: string };
+    return scheduleService.unassignTask(id);
+  });
 }
