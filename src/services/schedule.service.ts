@@ -16,7 +16,23 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-const HOURS = ['00', '02', '04', '06', '08', '10', '12', '14', '16', '18', '20', '22'];
+const SLOT_TIMES = [
+  '00:00', // Maintenance
+  '02:00',
+  '04:00',
+  '06:00',
+  '07:00', // Morning Brief
+  '08:00',
+  '10:00',
+  '12:00',
+  '12:30', // Afternoon Brief
+  '14:00',
+  '16:00',
+  '18:00',
+  '19:00', // Evening Brief
+  '20:00',
+  '22:00',
+];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const SPRINT_TOTAL = 30;
@@ -42,11 +58,11 @@ function addDays(baseDate: string, n: number): string {
 
 function slotType(
   dayIndex: number,
-  hour: string,
+  time: string,
 ): 'maintenance' | 'planning' | 'brief' | 'flex' {
-  if (hour === '00') return 'maintenance';
-  if (dayIndex === 0 && hour === '02') return 'planning';
-  if (hour === '08' || hour === '12' || hour === '20') return 'brief';
+  if (time === '00:00') return 'maintenance';
+  if (dayIndex === 0 && time === '02:00') return 'planning';
+  if (time === '07:00' || time === '12:30' || time === '19:00') return 'brief';
   return 'flex';
 }
 
@@ -156,7 +172,7 @@ export async function generateWeekPlan(weekStart?: string) {
     simmerSlots: simmerGoals.length
       ? allocations.filter(a => simmerGoals.some(g => g.id === a.goalId)).reduce((s, a) => s + a.targetSlots, 0)
       : 0,
-    fixedSlots: 8,
+    fixedSlots: 29, // 7 maintenance + 1 planning + 21 briefs (3/day × 7 days)
     flexSlots: 0, // filled below after slot generation
   };
 
@@ -168,9 +184,8 @@ export async function generateWeekPlan(weekStart?: string) {
     const date = addDays(normalizedStart, dayIndex);
     const dayName = DAY_NAMES[dayIndex];
 
-    for (const hr of HOURS) {
-      const time = `${hr}:00`;
-      const type = slotType(dayIndex, hr);
+    for (const time of SLOT_TIMES) {
+      const type = slotType(dayIndex, time);
       slotRows.push({
         id: nanoid(),
         weekPlanId: planId,

@@ -304,7 +304,7 @@ Returns all slots for today's date (derived at call time). Enriches each slot wi
 getWeekSlots(weekStart: string): Promise<{ weekPlan, slots: SlotWithTask[], allocations }>
 ```
 
-Returns the full week plan, all 84 slots with task enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. Throws `AppError(404)` if no plan exists.
+Returns the full week plan, all 105 slots with task enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. Throws `AppError(404)` if no plan exists.
 
 ### `generateWeekPlan(weekStart?)`
 
@@ -317,7 +317,7 @@ Creates a complete week plan:
 2. Throws `AppError(409)` if a plan already exists for that week.
 3. Queries all non-dormant goals.
 4. Computes per-goal slot allocations (sprint 30 / steady 12 / simmer 4, split evenly within each focus level).
-5. Generates 84 slots (12 hours × 7 days). Fixed types: `00:00` → `maintenance`, Sunday `02:00` → `planning`, `08:00`/`12:00`/`20:00` → `brief`. All others → `flex`.
+5. Generates 105 slots (15 times × 7 days). Fixed types: `00:00` → `maintenance`, Sunday `02:00` → `planning`, `07:00`/`12:30`/`19:00` → `brief`. All others → `flex`. `fixedSlots = 29` (7 maintenance + 1 planning + 21 briefs).
 6. Distributes task-eligible flex slots to goals in allocation order, upgrading them to type `task`.
 7. Pulls pending/assigned tasks for each goal and assigns them to that goal's task slots.
 8. Marks assigned tasks as `status = 'assigned'`.
