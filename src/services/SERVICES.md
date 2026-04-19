@@ -304,7 +304,7 @@ Returns all slots for today's date (derived at call time). Enriches each slot wi
 getWeekSlots(weekStart: string): Promise<{ weekPlan, slots: SlotWithTask[], allocations }>
 ```
 
-Returns the full week plan, all 105 slots with task enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. Throws `AppError(404)` if no plan exists.
+Returns the full week plan, all slots with task enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. If no plan exists, returns `{ weekPlan: null, slots: [], allocations: [] }` — no generation is triggered.
 
 ### `generateWeekPlan(weekStart?)`
 

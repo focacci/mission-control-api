@@ -98,7 +98,7 @@ export async function getWeekSlots(weekStart: string) {
     .from(weekPlans)
     .where(eq(weekPlans.weekStart, normalizedStart));
 
-  if (!plan) throw new AppError(404, `No week plan for week starting ${normalizedStart}`);
+  if (!plan) return { weekPlan: null, slots: [], allocations: [] };
 
   const slots = await db
     .select()
