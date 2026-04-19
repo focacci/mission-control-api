@@ -1,7 +1,7 @@
 import { eq, and, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
-import { goals, initiatives, tasks, taskRequirements, taskTests, taskOutputs } from '../db/schema.js';
+import { goals, initiatives, tasks, taskRequirements, taskTests, taskOutputs, scheduleSlots } from '../db/schema.js';
 import {
   now,
   today,
@@ -43,7 +43,20 @@ async function loadTaskDetail(id: string) {
     ? (await db.select().from(initiatives).where(eq(initiatives.id, task.initiativeId)))[0] ?? null
     : null;
 
-  return { ...task, requirements, tests, outputs, initiative, slot: null };
+  const slot = task.slotId
+    ? (await db
+        .select({
+          id: scheduleSlots.id,
+          date: scheduleSlots.date,
+          time: scheduleSlots.time,
+          datetime: scheduleSlots.datetime,
+          type: scheduleSlots.type,
+        })
+        .from(scheduleSlots)
+        .where(eq(scheduleSlots.id, task.slotId)))[0] ?? null
+    : null;
+
+  return { ...task, requirements, tests, outputs, initiative, slot };
 }
 
 async function deriveTaskEmoji(initiativeId?: string): Promise<string> {

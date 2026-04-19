@@ -366,6 +366,21 @@ export async function assignTask(taskId: string, slotId: string) {
   }
 
   db.transaction(tx => {
+    // If the slot already has a different task, release it
+    if (slot.taskId && slot.taskId !== taskId) {
+      tx.update(tasks)
+        .set({ slotId: null, status: 'pending', updatedAt: now() })
+        .where(eq(tasks.id, slot.taskId))
+        .run();
+    }
+    // If the task is already assigned to a different slot, release that slot
+    if (task.slotId && task.slotId !== slotId) {
+      tx.update(scheduleSlots)
+        .set({ taskId: null, status: 'pending' })
+        .where(eq(scheduleSlots.id, task.slotId))
+        .run();
+    }
+
     tx.update(scheduleSlots)
       .set({ taskId, type: 'task', status: 'pending', goalId: slot.goalId })
       .where(eq(scheduleSlots.id, slotId))
