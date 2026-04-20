@@ -3,14 +3,16 @@ import * as agentsService from '../services/agents.service.js';
 import { CreateAgentSchema, UpdateAgentSchema } from '../types/index.types.js';
 
 export async function agentsRoutes(app: FastifyInstance) {
-  // GET /api/agents — list agents (DB is source of truth, bootstraps from CLI on empty)
+  // GET /api/agents — list agents (DB is the source of truth; Intella only
+  // tracks agents it created, never external openclaw agents)
   app.get('/api/agents', async () => {
     return agentsService.listAgents();
   });
 
-  // POST /api/agents/sync — reconcile DB against openclaw CLI
-  app.post('/api/agents/sync', async () => {
-    return agentsService.syncAgents();
+  // POST /api/agents/repair — re-create any DB-tracked openclaw agents that
+  // have gone missing from the CLI (including the default Intella agent)
+  app.post('/api/agents/repair', async () => {
+    return agentsService.repairAgents();
   });
 
   // GET /api/agents/:id

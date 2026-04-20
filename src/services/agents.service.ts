@@ -129,11 +129,6 @@ function rowToAgent(row: typeof agents.$inferSelect): OpenclawAgent {
 
 export async function listAgents(): Promise<OpenclawAgent[]> {
   const rows = await db.select().from(agents).orderBy(asc(agents.createdAt));
-  if (rows.length === 0) {
-    // DB empty — bootstrap from CLI so first-run returns agents that already exist
-    const synced = await syncAgents();
-    return synced;
-  }
   return rows.map(rowToAgent);
 }
 
@@ -186,7 +181,7 @@ export async function createAgent(input: CreateAgentInput): Promise<OpenclawAgen
     agentDir: fromCli?.agentDir ?? join(homedir(), '.openclaw', 'agents', id),
     model: fromCli?.model ?? input.model,
     bindings: fromCli?.bindings ?? 0,
-    isDefault: fromCli?.isDefault ?? false,
+    isDefault: false,
     systemPrompt: prompt,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -230,49 +225,29 @@ export async function deleteAgent(id: string): Promise<void> {
 }
 
 /**
- * Reconcile the DB against the openclaw CLI. Upserts every CLI agent and
- * removes DB rows that no longer exist in the CLI. Escape hatch when state
- * drifts (e.g. an agent was created/deleted via `openclaw` directly).
+ * Recovery path for when a DB-tracked openclaw agent has gone missing from the
+ * CLI (e.g. the user deleted it directly via `openclaw agents delete`). For
+ * each DB row, if the matching openclaw agent is missing, re-create it so
+ * chat/bindings keep working. External openclaw agents (not in the DB) are
+ * intentionally ignored — Intella only tracks agents it created.
  */
-export async function syncAgents(): Promise<OpenclawAgent[]> {
+export async function repairAgents(): Promise<OpenclawAgent[]> {
   const cliAgents = await readCliAgents();
-  const timestamp = now();
+  const cliById = new Map(cliAgents.map((a) => [a.id, a]));
 
-  const existingRows = await db.select().from(agents);
-  const existingById = new Map(existingRows.map((r) => [r.id, r]));
-
-  db.transaction((tx) => {
-    const seen = new Set<string>();
-    for (const a of cliAgents) {
-      seen.add(a.id);
-      const prior = existingById.get(a.id);
-      const row = {
-        id: a.id,
-        name: a.name,
-        identityName: a.identityName ?? null,
-        identityEmoji: a.identityEmoji ?? null,
-        workspace: a.workspace,
-        agentDir: a.agentDir,
-        model: a.model ?? null,
-        bindings: a.bindings,
-        isDefault: a.isDefault,
-        systemPrompt: a.systemPrompt ?? null,
-        createdAt: prior?.createdAt ?? timestamp,
-        updatedAt: timestamp,
-      };
-      if (prior) {
-        tx.update(agents).set(row).where(eq(agents.id, a.id)).run();
-      } else {
-        tx.insert(agents).values(row).run();
-      }
+  const rows = await db.select().from(agents);
+  for (const row of rows) {
+    if (cliById.has(row.id)) continue;
+    await mkdir(row.workspace, { recursive: true });
+    if (row.systemPrompt) {
+      await writeSystemPrompt(row.workspace, row.systemPrompt);
     }
-    for (const prior of existingRows) {
-      if (!seen.has(prior.id)) {
-        tx.delete(agents).where(eq(agents.id, prior.id)).run();
-      }
-    }
-  });
+    const args = ['agents', 'add', row.id, '--workspace', row.workspace];
+    if (row.model) args.push('--model', row.model);
+    args.push('--non-interactive', '--json');
+    await runOpenclaw(args);
+  }
 
-  const rows = await db.select().from(agents).orderBy(asc(agents.createdAt));
-  return rows.map(rowToAgent);
+  const finalRows = await db.select().from(agents).orderBy(asc(agents.createdAt));
+  return finalRows.map(rowToAgent);
 }

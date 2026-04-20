@@ -45,7 +45,7 @@
   - [`createAgent`](#createagentinput)
   - [`updateAgent`](#updateagentid-input)
   - [`deleteAgent`](#deleteagentid)
-  - [`syncAgents`](#syncagents)
+  - [`repairAgents`](#repairagents)
 
 ---
 
@@ -388,7 +388,7 @@ Returns the full board state:
 
 ## Agents Service
 
-Manages the pool of OpenClaw agents. The `agents` DB table is the source of truth for reads; writes are write-through — every create/update/delete mutates both the `openclaw` CLI (via `child_process.execFile`) **and** the DB row. `syncAgents` is the escape hatch when the two drift.
+Manages the agents Intella owns. The `agents` DB table is the source of truth — **Intella only tracks agents it created**, never external openclaw agents that live on the user's machine. Writes are write-through: every create/update/delete mutates both the `openclaw` CLI (via `child_process.execFile`) **and** the DB row. [`repairAgents`](#repairagents) is the recovery path when tracked openclaw agents go missing from the CLI.
 
 ### `listAgents()`
 
@@ -396,7 +396,7 @@ Manages the pool of OpenClaw agents. The `agents` DB table is the source of trut
 listAgents(): Promise<OpenclawAgent[]>
 ```
 
-Returns all agent rows from the DB, ordered by `created_at` ascending. If the table is empty, calls `syncAgents()` first to bootstrap from the CLI — this is the first-run seed path.
+Returns all agent rows from the DB, ordered by `created_at` ascending. Does **not** shell out to the CLI — external openclaw agents are never returned.
 
 ### `getAgent(id)`
 
@@ -417,7 +417,7 @@ createAgent(input: { name, model, systemPrompt? }): Promise<OpenclawAgent>
 3. Creates `~/.openclaw/agents/<id>/workspace` (recursive).
 4. If `systemPrompt` is provided, writes it to `<workspace>/SOUL.md`.
 5. Runs `openclaw agents add <id> --workspace <dir> --model <input.model> --non-interactive --json`.
-6. Reads the authoritative agent record back from the CLI (picks up identity fields like `identityName`/`identityEmoji`) and inserts a row into `agents`.
+6. Reads the authoritative agent record back from the CLI (picks up identity fields like `identityName`/`identityEmoji`) and inserts a row into `agents` with `isDefault: false`. The `isDefault` flag is owned by Intella and never inherited from openclaw — the default agent's row is seeded manually (currently the `intella` row).
 
 ### `updateAgent(id, input)`
 
@@ -438,14 +438,12 @@ deleteAgent(id: string): Promise<void>
 
 Validates the agent exists in the DB (`AppError(404)` otherwise) and is not the default (`AppError(400)` if `is_default` is true). Runs `openclaw agents delete <id> --force --json`, best-effort removes `~/.openclaw/agents/<id>`, then deletes the DB row.
 
-### `syncAgents()`
+### `repairAgents()`
 
 ```ts
-syncAgents(): Promise<OpenclawAgent[]>
+repairAgents(): Promise<OpenclawAgent[]>
 ```
 
-Reconciles the `agents` table against `openclaw agents list`. In a single transaction:
-- upserts every agent reported by the CLI (existing rows keep their original `created_at`);
-- deletes DB rows whose ids no longer appear in the CLI output.
+Recovery path for when a tracked openclaw agent has gone missing from the CLI (e.g. the user deleted it directly via `openclaw agents delete`). For every DB row whose id is not present in `openclaw agents list`, re-creates the openclaw agent with that row's workspace, model, and `SOUL.md`.
 
-Returns the post-sync snapshot from the DB. Called automatically by `listAgents()` when the table is empty, and exposed directly via `POST /api/agents/sync` for manual recovery.
+**Does not import external openclaw agents** — rows that exist only in the CLI are ignored, and DB rows are never deleted by this function. Returns the full DB snapshot ordered by `created_at`. Exposed via `POST /api/agents/repair`.

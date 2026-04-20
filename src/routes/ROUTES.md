@@ -166,23 +166,26 @@ Unified board view and Obsidian refresh.
 
 ## Agents
 
-CRUD for OpenClaw agents. The `agents` DB table is the source of truth for reads; writes go through the table **and** the `openclaw` CLI (write-through). Use `POST /api/agents/sync` as an escape hatch if the two drift.
+CRUD for OpenClaw agents that Intella owns. The `agents` DB table is the source of truth — **only agents Intella created are tracked**; other openclaw agents on the user's machine are ignored. Writes go through the table **and** the `openclaw` CLI (write-through). Use `POST /api/agents/repair` if a tracked agent has gone missing from the CLI.
+
+A single row (id: `intella`) is seeded as the default agent (`isDefault: true`). The `isDefault` flag is owned by Intella; openclaw's own notion of default is ignored.
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
-| `GET` | `/api/agents` | List all configured agents | — | `OpenclawAgent[]` |
+| `GET` | `/api/agents` | List all Intella-tracked agents | — | `OpenclawAgent[]` |
 | `GET` | `/api/agents/:id` | Get a single agent | — | `OpenclawAgent` |
 | `POST` | `/api/agents` | Create a new isolated agent | `{ name, model, systemPrompt? }` | `201 OpenclawAgent` |
 | `PATCH` | `/api/agents/:id` | Update editable fields | `{ systemPrompt?: string \| null }` | `OpenclawAgent` |
 | `DELETE` | `/api/agents/:id` | Delete an agent and prune its workspace/state | — | `204` |
-| `POST` | `/api/agents/sync` | Reconcile the DB against the `openclaw` CLI | — | `OpenclawAgent[]` |
+| `POST` | `/api/agents/repair` | Re-create any tracked openclaw agents that have gone missing from the CLI | — | `OpenclawAgent[]` |
 
 **Notes:**
 - `name` is normalized to an `id` (lowercase, alphanumeric + hyphens) used as the agent identifier and workspace folder name.
 - Each new agent gets its own workspace at `~/.openclaw/agents/<id>/workspace`. When `systemPrompt` is provided it is written to `SOUL.md` in that workspace (OpenClaw's convention for agent personality/identity).
 - **Only `systemPrompt` is editable.** `PATCH` rewrites `SOUL.md` in the agent's workspace and updates the DB row. Passing `systemPrompt: null` or `""` clears the prompt (removes `SOUL.md`). `name` and `model` are immutable — to change them, delete and recreate the agent.
-- If the `agents` table is empty on a `GET`, the service bootstraps it from the CLI automatically — this is the first-run seed path.
-- `POST /api/agents/sync` upserts every agent reported by `openclaw agents list` and removes DB rows that no longer exist in the CLI.
+- `GET` returns **only** the DB rows — external openclaw agents never appear here, even if created directly via the `openclaw` CLI.
+- The `isDefault` flag is owned by Intella, not openclaw: the bootstrapped `intella` row is the sole `isDefault: true` agent, and all user-created agents are stored with `isDefault: false` regardless of what openclaw reports.
+- `POST /api/agents/repair` does **not** import external openclaw agents — it only re-creates openclaw agents for rows Intella already tracks.
 - Deleting the default agent (`isDefault: true`) returns a `400`. Deleting an unknown id returns `404`.
 
 ---
