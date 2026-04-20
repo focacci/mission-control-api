@@ -172,6 +172,17 @@ export const AssignTaskSchema = z.object({
   slotId: z.string().min(1),
 });
 
+// Agents
+export const CreateAgentSchema = z.object({
+  name: z.string().min(1),
+  model: z.string().min(1),
+  systemPrompt: z.string().optional(),
+});
+
+export const UpdateAgentSchema = z.object({
+  systemPrompt: z.string().nullable().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
@@ -189,3 +200,5 @@ export type UpdateSlotInput = z.infer<typeof UpdateSlotSchema>;
 export type DoneSlotInput = z.infer<typeof DoneSlotSchema>;
 export type SkipSlotInput = z.infer<typeof SkipSlotSchema>;
 export type AssignTaskInput = z.infer<typeof AssignTaskSchema>;
+export type CreateAgentInput = z.infer<typeof CreateAgentSchema>;
+export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;

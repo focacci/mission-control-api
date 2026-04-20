@@ -124,6 +124,21 @@ export const taskOutputs = sqliteTable('task_outputs', {
   createdAt: text('created_at').notNull(),
 });
 
+export const agents = sqliteTable('agents', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  identityName: text('identity_name'),
+  identityEmoji: text('identity_emoji'),
+  workspace: text('workspace').notNull(),
+  agentDir: text('agent_dir').notNull(),
+  model: text('model'),
+  bindings: integer('bindings').notNull().default(0),
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  systemPrompt: text('system_prompt'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const weekGoalAllocations = sqliteTable('week_goal_allocations', {
   id: text('id').primaryKey(),
   weekPlanId: text('week_plan_id')

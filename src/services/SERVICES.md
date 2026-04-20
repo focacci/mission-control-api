@@ -39,6 +39,13 @@
   - [`unassignTask`](#unassigntaskslotid)
 - [Board Service](#board-service)
   - [`getBoard`](#getboard)
+- [Agents Service](#agents-service)
+  - [`listAgents`](#listagents)
+  - [`getAgent`](#getagentid)
+  - [`createAgent`](#createagentinput)
+  - [`updateAgent`](#updateagentid-input)
+  - [`deleteAgent`](#deleteagentid)
+  - [`syncAgents`](#syncagents)
 
 ---
 
@@ -376,3 +383,69 @@ Returns the full board state:
 - All goals sorted by focus order, each with nested initiatives and their tasks.
 - `stats`: aggregate task counts (`total`, `pending`, `assigned`, `inProgress`, `done`, `blocked`, `cancelled`). Cancelled tasks are excluded from `total`.
 - `weekSummary`: current week plan with slot counts, or `null` if no plan for this week.
+
+---
+
+## Agents Service
+
+Manages the pool of OpenClaw agents. The `agents` DB table is the source of truth for reads; writes are write-through — every create/update/delete mutates both the `openclaw` CLI (via `child_process.execFile`) **and** the DB row. `syncAgents` is the escape hatch when the two drift.
+
+### `listAgents()`
+
+```ts
+listAgents(): Promise<OpenclawAgent[]>
+```
+
+Returns all agent rows from the DB, ordered by `created_at` ascending. If the table is empty, calls `syncAgents()` first to bootstrap from the CLI — this is the first-run seed path.
+
+### `getAgent(id)`
+
+```ts
+getAgent(id: string): Promise<OpenclawAgent>
+```
+
+Returns a single row from the DB. Throws `notFound('Agent', id)` if no row exists. Does not shell out to the CLI.
+
+### `createAgent(input)`
+
+```ts
+createAgent(input: { name, model, systemPrompt? }): Promise<OpenclawAgent>
+```
+
+1. Normalizes `name` → lowercase, alphanumeric + hyphens (used as agent id and folder name). Throws `AppError(400)` if the result is empty.
+2. Throws `AppError(409)` if a row with that id already exists in the DB.
+3. Creates `~/.openclaw/agents/<id>/workspace` (recursive).
+4. If `systemPrompt` is provided, writes it to `<workspace>/SOUL.md`.
+5. Runs `openclaw agents add <id> --workspace <dir> --model <input.model> --non-interactive --json`.
+6. Reads the authoritative agent record back from the CLI (picks up identity fields like `identityName`/`identityEmoji`) and inserts a row into `agents`.
+
+### `updateAgent(id, input)`
+
+```ts
+updateAgent(id: string, input: { systemPrompt?: string | null }): Promise<OpenclawAgent>
+```
+
+Editable fields are intentionally narrow:
+- **`systemPrompt`** — rewrites `<workspace>/SOUL.md` and mirrors the value into the DB row. Passing `null` or an empty/whitespace-only string removes `SOUL.md` and sets the DB column to `null`.
+
+`name` and `model` are not editable — delete and recreate to change them. Throws `notFound('Agent', id)` if the row is missing.
+
+### `deleteAgent(id)`
+
+```ts
+deleteAgent(id: string): Promise<void>
+```
+
+Validates the agent exists in the DB (`AppError(404)` otherwise) and is not the default (`AppError(400)` if `is_default` is true). Runs `openclaw agents delete <id> --force --json`, best-effort removes `~/.openclaw/agents/<id>`, then deletes the DB row.
+
+### `syncAgents()`
+
+```ts
+syncAgents(): Promise<OpenclawAgent[]>
+```
+
+Reconciles the `agents` table against `openclaw agents list`. In a single transaction:
+- upserts every agent reported by the CLI (existing rows keep their original `created_at`);
+- deletes DB rows whose ids no longer appear in the CLI output.
+
+Returns the post-sync snapshot from the DB. Called automatically by `listAgents()` when the table is empty, and exposed directly via `POST /api/agents/sync` for manual recovery.

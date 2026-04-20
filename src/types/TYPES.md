@@ -20,6 +20,7 @@
   - [Test Schemas](#test-schemas)
   - [Output Schema](#output-schema)
   - [Schedule Schemas](#schedule-schemas)
+  - [Agent Schemas](#agent-schemas)
 - [Inferred TypeScript Types](#inferred-typescript-types)
 
 ---
@@ -299,6 +300,30 @@ Used by `POST /api/tasks/:id/block`.
 { taskId: string (min 1), slotId: string (min 1) }
 ```
 
+### Agent Schemas
+
+#### `CreateAgentSchema`
+
+```ts
+{
+  name: string (min 1),
+  model: string (min 1),
+  systemPrompt?: string,
+}
+```
+
+Input for `POST /api/agents`. `name` is normalized to an agent id (lowercase, alphanumeric + hyphens) by the service layer. `model` must be an OpenClaw-recognized model key (e.g. `github-copilot/claude-sonnet-4`). `systemPrompt`, when provided, is written to the new agent's workspace as `SOUL.md`.
+
+#### `UpdateAgentSchema`
+
+```ts
+{
+  systemPrompt?: string | null,   // null or "" clears SOUL.md
+}
+```
+
+Input for `PATCH /api/agents/:id`. Only `systemPrompt` is editable; `name` and `model` are immutable once the agent is created. The service rewrites `SOUL.md` in the agent's workspace and mirrors the value into the DB row.
+
 ---
 
 ## Inferred TypeScript Types
@@ -320,3 +345,5 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `DoneSlotInput` | `DoneSlotSchema` |
 | `SkipSlotInput` | `SkipSlotSchema` |
 | `AssignTaskInput` | `AssignTaskSchema` |
+| `CreateAgentInput` | `CreateAgentSchema` |
+| `UpdateAgentInput` | `UpdateAgentSchema` |

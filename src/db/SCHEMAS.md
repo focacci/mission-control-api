@@ -11,6 +11,7 @@
 - [`week_plans`](#week_plans)
 - [`schedule_slots`](#schedule_slots)
 - [`week_goal_allocations`](#week_goal_allocations)
+- [`agents`](#agents)
 - [Relationships Overview](#relationships-overview)
 
 ---
@@ -174,6 +175,29 @@ Per-goal slot targets within a week plan. Tracks how many slots were budgeted an
 | `goal_id` | `text` FK → `goals.id` | `ON DELETE CASCADE` |
 | `target_slots` | `integer` | how many slots budgeted for this goal this week |
 | `assigned_slots` | `integer` default 0 | how many slots have actually been assigned tasks |
+
+---
+
+## `agents`
+
+Local cache of OpenClaw agents managed by this API. The DB is the source of truth for reads; writes go through both the `openclaw` CLI and this table (write-through). The `POST /api/agents/sync` endpoint reconciles the table against the CLI.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | normalized name (lowercase, alphanumeric + hyphens); also the OpenClaw agent id |
+| `name` | `text` | display name as reported by openclaw |
+| `identity_name` | `text` nullable | `identityName` from openclaw (may differ from `name`) |
+| `identity_emoji` | `text` nullable | emoji rendered in the iOS list |
+| `workspace` | `text` | absolute path — usually `~/.openclaw/agents/<id>/workspace`; `SOUL.md` lives here |
+| `agent_dir` | `text` | absolute path to the agent root directory |
+| `model` | `text` nullable | OpenClaw model key (e.g. `github-copilot/claude-sonnet-4`) |
+| `bindings` | `integer` default 0 | count of active bindings (informational) |
+| `is_default` | `integer` boolean default false | default agent cannot be deleted |
+| `system_prompt` | `text` nullable | mirrors the contents of `<workspace>/SOUL.md` |
+| `created_at` | `text` | ISO timestamp |
+| `updated_at` | `text` | ISO timestamp |
+
+**No FKs.** Agents are independent of the goals/initiatives/tasks hierarchy.
 
 ---
 

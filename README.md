@@ -168,6 +168,7 @@ Goals have a **focus level** that controls weekly schedule allocation:
 | Goals | `/api/goals` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Initiatives | `/api/initiatives` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Tasks | `/api/tasks` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Agents | `/api/agents` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 
 ### Quick examples
 

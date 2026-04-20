@@ -4,12 +4,13 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 const OPENCLAW_BIN = 'openclaw';
-const AGENT_ID = 'intella';
+const DEFAULT_AGENT_ID = 'intella';
 const GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN ?? '8509ebc28b57fb82ea5a8810df5c99a31cc33ca8b2500e21';
 const AGENT_TIMEOUT = 120; // seconds
 
 interface ChatRequest {
   message: string;
+  agentId?: string;
   context?: {
     type: string;
     id?: string;
@@ -24,6 +25,7 @@ interface ChatRequest {
 interface ChatResponse {
   reply: string;
   sessionId: string;
+  agentId: string;
 }
 
 function buildPrompt(req: ChatRequest): string {
@@ -46,13 +48,17 @@ function buildPrompt(req: ChatRequest): string {
 }
 
 async function sendMessage(req: ChatRequest): Promise<ChatResponse> {
+  const agentId = req.agentId?.trim() || DEFAULT_AGENT_ID;
   const prompt = buildPrompt(req);
-  // Use a stable session id per context type+id so conversation persists
-  const sessionId = req.sessionId ?? `intella-ios-${req.context?.type ?? 'app'}-${req.context?.id ?? 'default'}`;
+  // Session id is scoped per-agent so conversations with different agents
+  // don't bleed into one another, even when visiting the same context.
+  const sessionId =
+    req.sessionId ??
+    `intella-ios-${agentId}-${req.context?.type ?? 'app'}-${req.context?.id ?? 'default'}`;
 
   const args = [
     'agent',
-    '--agent', AGENT_ID,
+    '--agent', agentId,
     '--session-id', sessionId,
     '--message', prompt,
     '--json',
@@ -80,6 +86,7 @@ async function sendMessage(req: ChatRequest): Promise<ChatResponse> {
     return {
       reply: text,
       sessionId,
+      agentId,
     };
   } catch (err: any) {
     console.error('OpenClaw agent error:', err.message);
