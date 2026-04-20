@@ -182,7 +182,6 @@ All schemas are used directly in route handlers via `.parse(request.body)`.
   name: string (min 1),
   initiativeId?: string,
   objective: string (min 1),
-  emoji?: string,              // manual override; otherwise derived from goal+initiative
   requirements?: string[],     // default: []
   tests?: string[],            // default: []
 }

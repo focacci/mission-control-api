@@ -1,11 +1,10 @@
 import { eq, and, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
-import { goals, initiatives, tasks, taskRequirements, taskTests, taskOutputs, scheduleSlots } from '../db/schema.js';
+import { initiatives, tasks, taskRequirements, taskTests, taskOutputs, scheduleSlots } from '../db/schema.js';
 import {
   now,
   today,
-  deriveDisplayName,
   notFound,
   AppError,
   type CreateTaskInput,
@@ -57,23 +56,6 @@ async function loadTaskDetail(id: string) {
     : null;
 
   return { ...task, requirements, tests, outputs, initiative, slot };
-}
-
-async function deriveTaskEmoji(initiativeId?: string): Promise<string> {
-  if (!initiativeId) return '📋';
-
-  const [initiative] = await db
-    .select()
-    .from(initiatives)
-    .where(eq(initiatives.id, initiativeId));
-  if (!initiative) return '📋';
-
-  if (initiative.goalId) {
-    const [goal] = await db.select().from(goals).where(eq(goals.id, initiative.goalId));
-    if (goal) return `${goal.emoji}${initiative.emoji}`;
-  }
-
-  return initiative.emoji;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,16 +136,13 @@ export async function getTask(id: string) {
 }
 
 export async function createTask(input: CreateTaskInput) {
-  const emoji = input.emoji ?? (await deriveTaskEmoji(input.initiativeId));
-  const displayName = deriveDisplayName(emoji, input.name);
   const createdAt = today();
   const updatedAt = now();
 
   const task = {
     id: nanoid(),
-    emoji,
     name: input.name,
-    displayName,
+    displayName: input.name,
     initiativeId: input.initiativeId ?? null,
     status: 'pending' as const,
     objective: input.objective,
@@ -212,9 +191,8 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
 
-  const emoji = existing.emoji;
   const name = input.name ?? existing.name;
-  const displayName = input.name ? deriveDisplayName(emoji, name) : existing.displayName;
+  const displayName = name;
 
   const updates: Partial<typeof existing> = {
     name,

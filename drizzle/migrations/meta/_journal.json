@@ -15,6 +15,13 @@
       "when": 1776297253186,
       "tag": "0001_glorious_kinsey_walden",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1745020800000,
+      "tag": "0002_drop_task_emoji",
+      "breakpoints": true
     }
   ]
 }

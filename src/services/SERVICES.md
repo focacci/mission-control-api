@@ -181,7 +181,6 @@ Returns full task detail: task row + `requirements`, `tests`, `outputs`, parent 
 createTask(input: CreateTaskInput): Promise<TaskDetail>
 ```
 
-- Derives `emoji`: `goal.emoji + initiative.emoji` if linked, else `initiative.emoji`, else `📋`.
 - Inserts the task, requirements, and tests in a single synchronous transaction.
 - Returns full task detail via `loadTaskDetail`.
 
@@ -191,7 +190,7 @@ createTask(input: CreateTaskInput): Promise<TaskDetail>
 updateTask(id: string, input: UpdateTaskInput): Promise<TaskDetail>
 ```
 
-Updates `name`, `objective`, `status`, and/or `sortOrder`. Recomputes `displayName` if `name` changes. Emoji is never changed by an update.
+Updates `name`, `objective`, `status`, and/or `sortOrder`. Recomputes `displayName` if `name` changes.
 
 ### `startTask(id)`
 

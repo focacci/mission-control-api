@@ -67,7 +67,6 @@ A discrete unit of work belonging to an initiative.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text` PK | nanoid |
-| `emoji` | `text` | derived: `goal.emoji + initiative.emoji`, or `📋` if unlinked |
 | `name` | `text` UNIQUE | |
 | `display_name` | `text` | derived |
 | `initiative_id` | `text` FK → `initiatives.id` | `ON DELETE SET NULL` |

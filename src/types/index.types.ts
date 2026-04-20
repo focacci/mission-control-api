@@ -98,7 +98,6 @@ export const CreateTaskSchema = z.object({
   name: z.string().min(1),
   initiativeId: z.string().optional(),
   objective: z.string().min(1),
-  emoji: z.string().optional(), // manual override; otherwise derived from initiative/goal
   requirements: z.array(z.string().min(1)).optional().default([]),
   tests: z.array(z.string().min(1)).optional().default([]),
 });

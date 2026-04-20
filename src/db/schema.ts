@@ -73,7 +73,6 @@ export const scheduleSlots = sqliteTable('schedule_slots', {
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
-  emoji: text('emoji').notNull(),
   name: text('name').notNull().unique(),
   displayName: text('display_name').notNull(),
   initiativeId: text('initiative_id').references(() => initiatives.id, {
