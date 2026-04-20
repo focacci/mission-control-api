@@ -9,6 +9,7 @@ import { initiativesRoutes } from './routes/initiatives.routes.js';
 import { tasksRoutes } from './routes/tasks.routes.js';
 import { scheduleRoutes } from './routes/schedule.routes.js';
 import { boardRoutes } from './routes/board.routes.js';
+import { chatRoutes } from './routes/chat.routes.js';
 import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
 
@@ -56,6 +57,7 @@ await app.register(initiativesRoutes);
 await app.register(tasksRoutes);
 await app.register(scheduleRoutes);
 await app.register(boardRoutes);
+await app.register(chatRoutes);
 
 // ---------------------------------------------------------------------------
 // Start
