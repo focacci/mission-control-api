@@ -8,732 +8,434 @@ import * as scheduleService from '../services/schedule.service.js';
 import * as boardService from '../services/board.service.js';
 
 // ---------------------------------------------------------------------------
-// Tool definitions
+// Coarse-grained tool definitions (6 tools instead of 35)
+//
+// Design rationale:
+//   Local LLMs have limited context for tool schemas. Fewer, broader tools
+//   reduce schema tokens by ~80% while preserving full functionality via an
+//   "action" discriminator pattern. Each tool maps to one domain aggregate.
 // ---------------------------------------------------------------------------
 
 const TOOLS = [
-  // --- Health / Board ---
   {
-    name: 'health',
-    description: 'Basic health check. Returns status and total goal count.',
+    name: 'board',
+    description:
+      'Read-only overview of the entire system. Returns all goals with nested initiatives and tasks, stats, and the current week schedule summary. Call this first to understand the current state before making changes.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
-    name: 'get_board',
-    description: 'Full board hierarchy: all goals with nested initiatives and tasks, plus stats and current-week summary.',
-    inputSchema: { type: 'object', properties: {}, required: [] },
-  },
-
-  // --- Goals ---
-  {
-    name: 'list_goals',
-    description: 'List all goals, optionally filtered by focus level.',
+    name: 'goals',
+    description:
+      'Manage goals (top-level objectives with focus levels). Actions: list, get, create, update, delete.',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'get', 'create', 'update', 'delete'],
+          description: 'Operation to perform.',
+        },
+        id: { type: 'string', description: 'Goal ID (required for get/update/delete).' },
+        emoji: { type: 'string', description: 'Emoji for create/update.' },
+        name: { type: 'string', description: 'Goal name for create/update.' },
         focus: {
           type: 'string',
           enum: ['sprint', 'steady', 'simmer', 'dormant'],
-          description: 'Filter goals by focus level.',
+          description: 'Focus level. For list: filters results. For create/update: sets level.',
         },
+        timeline: { type: 'string', description: 'Timeline string (null to clear on update).' },
+        story: { type: 'string', description: 'Narrative context (null to clear on update).' },
+        sortOrder: { type: 'number', description: 'Sort position (update only).' },
       },
+      required: ['action'],
     },
   },
   {
-    name: 'get_goal',
-    description: 'Get a single goal by ID, including its nested initiatives.',
+    name: 'initiatives',
+    description:
+      'Manage initiatives (actionable projects under goals). Actions: list, get, create, update, complete, delete.',
     inputSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Goal ID.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'create_goal',
-    description: 'Create a new goal.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        emoji: { type: 'string', description: 'Emoji representing the goal.' },
-        name: { type: 'string', description: 'Goal name.' },
-        focus: {
+        action: {
           type: 'string',
-          enum: ['sprint', 'steady', 'simmer', 'dormant'],
-          description: 'Focus level (default: steady).',
+          enum: ['list', 'get', 'create', 'update', 'complete', 'delete'],
+          description: 'Operation to perform.',
         },
-        timeline: { type: 'string', description: 'Optional timeline string.' },
-        story: { type: 'string', description: 'Optional narrative/context.' },
-      },
-      required: ['emoji', 'name'],
-    },
-  },
-  {
-    name: 'update_goal',
-    description: 'Update an existing goal. Only provided fields are changed.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Goal ID.' },
-        emoji: { type: 'string' },
-        name: { type: 'string' },
-        focus: { type: 'string', enum: ['sprint', 'steady', 'simmer', 'dormant'] },
-        timeline: { type: ['string', 'null'], description: 'Set null to clear.' },
-        story: { type: ['string', 'null'], description: 'Set null to clear.' },
-        sortOrder: { type: 'number', description: 'Integer sort position.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'delete_goal',
-    description: 'Hard-delete a goal and all its initiatives and tasks.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Goal ID.' },
-      },
-      required: ['id'],
-    },
-  },
-
-  // --- Initiatives ---
-  {
-    name: 'list_initiatives',
-    description: 'List initiatives, optionally filtered by goalId and/or status.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        goalId: { type: 'string', description: 'Filter by parent goal ID.' },
+        id: { type: 'string', description: 'Initiative ID (required for get/update/complete/delete).' },
+        goalId: { type: 'string', description: 'Parent goal ID. For list: filters. For create/update: links.' },
+        emoji: { type: 'string', description: 'Emoji for create/update.' },
+        name: { type: 'string', description: 'Name for create/update.' },
+        mission: { type: 'string', description: 'Mission statement (null to clear on update).' },
         status: {
           type: 'string',
           enum: ['active', 'backlog', 'paused', 'completed'],
-          description: 'Filter by status.',
+          description: 'Status filter (list) or value (create/update).',
         },
+        sortOrder: { type: 'number', description: 'Sort position (update only).' },
       },
+      required: ['action'],
     },
   },
   {
-    name: 'get_initiative',
-    description: 'Get a single initiative by ID, including its parent goal and tasks.',
+    name: 'tasks',
+    description:
+      'Manage tasks and their sub-items (requirements, tests, outputs). Actions: list, get, create, update, start, complete, block, cancel, delete, add_requirement, update_requirement, check_requirement, uncheck_requirement, delete_requirement, add_test, update_test, delete_test, add_output, delete_output.',
     inputSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Initiative ID.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'create_initiative',
-    description: 'Create a new initiative.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        emoji: { type: 'string', description: 'Emoji for the initiative.' },
-        name: { type: 'string', description: 'Initiative name.' },
-        goalId: { type: 'string', description: 'Parent goal ID (optional).' },
-        mission: { type: 'string', description: 'Mission statement (optional).' },
-        status: {
+        action: {
           type: 'string',
-          enum: ['active', 'backlog', 'paused', 'completed'],
-          description: 'Initial status (default: active).',
-        },
-      },
-      required: ['emoji', 'name'],
-    },
-  },
-  {
-    name: 'update_initiative',
-    description: 'Update an existing initiative. Only provided fields are changed.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Initiative ID.' },
-        emoji: { type: 'string' },
-        name: { type: 'string' },
-        status: { type: 'string', enum: ['active', 'backlog', 'paused', 'completed'] },
-        mission: { type: ['string', 'null'], description: 'Set null to clear.' },
-        goalId: { type: ['string', 'null'], description: 'Set null to unlink from goal.' },
-        sortOrder: { type: 'number', description: 'Integer sort position.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'complete_initiative',
-    description: 'Mark an initiative as completed. Cancels all non-terminal tasks under it.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Initiative ID.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'delete_initiative',
-    description: 'Hard-delete an initiative and all its tasks.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Initiative ID.' },
-      },
-      required: ['id'],
-    },
-  },
-
-  // --- Tasks ---
-  {
-    name: 'list_tasks',
-    description: 'List tasks. Optionally filter by initiativeId and/or status (status can be a single value or array).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        initiativeId: { type: 'string', description: 'Filter by initiative ID.' },
-        status: {
-          oneOf: [
-            {
-              type: 'string',
-              enum: ['pending', 'assigned', 'in-progress', 'done', 'blocked', 'cancelled'],
-            },
-            {
-              type: 'array',
-              items: {
-                type: 'string',
-                enum: ['pending', 'assigned', 'in-progress', 'done', 'blocked', 'cancelled'],
-              },
-            },
+          enum: [
+            'list', 'get', 'create', 'update', 'start', 'complete', 'block', 'cancel', 'delete',
+            'add_requirement', 'update_requirement', 'check_requirement', 'uncheck_requirement', 'delete_requirement',
+            'add_test', 'update_test', 'delete_test',
+            'add_output', 'delete_output',
           ],
-          description: 'Filter by status; accepts a single value or array.',
+          description: 'Operation to perform.',
         },
-      },
-    },
-  },
-  {
-    name: 'get_task',
-    description: 'Get a single task by ID with full detail: requirements, tests, outputs, initiative, and current slot.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Task ID.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'create_task',
-    description: 'Create a new task, optionally with pre-populated requirements and tests.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Task name.' },
-        objective: { type: 'string', description: 'Clear objective/definition of done.' },
-        initiativeId: { type: 'string', description: 'Parent initiative ID (optional).' },
-        emoji: { type: 'string', description: 'Override emoji (derived from initiative if omitted).' },
+        id: { type: 'string', description: 'Task ID (required for most actions except list/create).' },
+        initiativeId: { type: 'string', description: 'Parent initiative ID. For list: filter. For create: link.' },
+        emoji: { type: 'string', description: 'Emoji override (create only; derived from initiative if omitted).' },
+        name: { type: 'string', description: 'Task name (create/update).' },
+        objective: { type: 'string', description: 'Definition of done (create/update).' },
+        status: {
+          type: 'string',
+          enum: ['pending', 'assigned', 'in-progress', 'done', 'blocked', 'cancelled'],
+          description: 'Status filter (list) or value (update).',
+        },
+        sortOrder: { type: 'number', description: 'Sort position (update only).' },
+        summary: { type: 'string', description: 'Completion summary (complete action).' },
+        reason: { type: 'string', description: 'Block reason (block action).' },
         requirements: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Initial requirement descriptions.',
+          description: 'Initial requirements (create only).',
         },
         tests: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Initial test descriptions.',
+          description: 'Initial tests (create only).',
         },
-      },
-      required: ['name', 'objective'],
-    },
-  },
-  {
-    name: 'update_task',
-    description: 'Update task fields. Only provided fields are changed.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Task ID.' },
-        name: { type: 'string' },
-        objective: { type: 'string' },
-        status: {
-          type: 'string',
-          enum: ['pending', 'assigned', 'in-progress', 'done', 'blocked', 'cancelled'],
-        },
-        sortOrder: { type: 'number' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'start_task',
-    description: 'Transition a task to in-progress status.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Task ID.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'complete_task',
-    description: 'Mark a task as done. Requires all requirements to already be checked. Optionally attaches outputs.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Task ID.' },
-        summary: { type: 'string', description: 'Completion summary.' },
         outputs: {
           type: 'array',
           items: {
             type: 'object',
-            properties: {
-              label: { type: 'string' },
-              url: { type: 'string' },
-            },
+            properties: { label: { type: 'string' }, url: { type: 'string' } },
             required: ['label'],
           },
-          description: 'Optional output artifacts to attach.',
+          description: 'Output artifacts (complete action).',
         },
+        // Sub-item fields
+        reqId: { type: 'string', description: 'Requirement ID (requirement actions).' },
+        testId: { type: 'string', description: 'Test ID (test actions).' },
+        outputId: { type: 'string', description: 'Output ID (delete_output).' },
+        description: { type: 'string', description: 'Description for requirement/test add/update.' },
+        completed: { type: 'boolean', description: 'Requirement completed state (update_requirement).' },
+        passed: { type: 'boolean', description: 'Test passed state (update_test).' },
+        label: { type: 'string', description: 'Output label (add_output).' },
+        url: { type: 'string', description: 'Output URL (add_output).' },
       },
-      required: ['id', 'summary'],
+      required: ['action'],
     },
   },
   {
-    name: 'block_task',
-    description: 'Mark a task as blocked with a reason.',
+    name: 'schedule',
+    description:
+      'Manage the weekly schedule (time slots that tasks are assigned to). Actions: today, week, generate, assign, unassign, done, skip, update.',
     inputSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Task ID.' },
-        reason: { type: 'string', description: 'Reason for blocking.' },
-      },
-      required: ['id', 'reason'],
-    },
-  },
-  {
-    name: 'cancel_task',
-    description: 'Cancel a task.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Task ID.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'delete_task',
-    description: 'Hard-delete a task and all its requirements, tests, and outputs.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Task ID.' },
-      },
-      required: ['id'],
-    },
-  },
-
-  // --- Requirements ---
-  {
-    name: 'add_requirement',
-    description: 'Add a requirement checklist item to a task.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        description: { type: 'string', description: 'Requirement description.' },
-      },
-      required: ['taskId', 'description'],
-    },
-  },
-  {
-    name: 'update_requirement',
-    description: 'Update a requirement\'s description or completed state.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        reqId: { type: 'string', description: 'Requirement ID.' },
-        description: { type: 'string' },
-        completed: { type: 'boolean' },
-      },
-      required: ['taskId', 'reqId'],
-    },
-  },
-  {
-    name: 'check_requirement',
-    description: 'Mark a requirement as completed.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        reqId: { type: 'string', description: 'Requirement ID.' },
-      },
-      required: ['taskId', 'reqId'],
-    },
-  },
-  {
-    name: 'uncheck_requirement',
-    description: 'Mark a requirement as not completed.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        reqId: { type: 'string', description: 'Requirement ID.' },
-      },
-      required: ['taskId', 'reqId'],
-    },
-  },
-  {
-    name: 'delete_requirement',
-    description: 'Delete a requirement from a task.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        reqId: { type: 'string', description: 'Requirement ID.' },
-      },
-      required: ['taskId', 'reqId'],
-    },
-  },
-
-  // --- Tests ---
-  {
-    name: 'add_test',
-    description: 'Add a test/verification step to a task.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        description: { type: 'string', description: 'Test description.' },
-      },
-      required: ['taskId', 'description'],
-    },
-  },
-  {
-    name: 'update_test',
-    description: 'Update a test\'s description or passed state.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        testId: { type: 'string', description: 'Test ID.' },
-        description: { type: 'string' },
-        passed: { type: 'boolean' },
-      },
-      required: ['taskId', 'testId'],
-    },
-  },
-  {
-    name: 'delete_test',
-    description: 'Delete a test from a task.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        testId: { type: 'string', description: 'Test ID.' },
-      },
-      required: ['taskId', 'testId'],
-    },
-  },
-
-  // --- Outputs ---
-  {
-    name: 'add_output',
-    description: 'Add an output artifact to a task.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        label: { type: 'string', description: 'Output label/name.' },
-        url: { type: 'string', description: 'Optional URL for the artifact.' },
-      },
-      required: ['taskId', 'label'],
-    },
-  },
-  {
-    name: 'delete_output',
-    description: 'Delete an output artifact from a task.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID.' },
-        outputId: { type: 'string', description: 'Output ID.' },
-      },
-      required: ['taskId', 'outputId'],
-    },
-  },
-
-  // --- Schedule ---
-  {
-    name: 'get_schedule_today',
-    description: 'Get all schedule slots for today, enriched with assigned task data.',
-    inputSchema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'get_schedule_week',
-    description: 'Get the full week plan, slots, and goal allocations for a given week.',
-    inputSchema: {
-      type: 'object',
-      properties: {
+        action: {
+          type: 'string',
+          enum: ['today', 'week', 'generate', 'assign', 'unassign', 'done', 'skip', 'update'],
+          description: 'Operation to perform.',
+        },
+        slotId: { type: 'string', description: 'Slot ID (required for assign/unassign/done/skip/update).' },
+        taskId: { type: 'string', description: 'Task ID (assign action, or null to unassign in update).' },
         weekStart: {
           type: 'string',
-          pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-          description: 'Any date in the target week (YYYY-MM-DD). Defaults to current week if omitted.',
+          description: 'Date in target week, YYYY-MM-DD (week/generate actions; defaults to current week).',
         },
-      },
-    },
-  },
-  {
-    name: 'generate_week_plan',
-    description: 'Generate a new week plan with 84 slots and goal allocations. Returns 409 if a plan already exists for that week.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        weekStart: {
-          type: 'string',
-          pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-          description: 'Any date in the target week (YYYY-MM-DD). Defaults to current week if omitted.',
-        },
-      },
-    },
-  },
-  {
-    name: 'assign_task_to_slot',
-    description: 'Assign a task to a schedule slot. Handles releasing any existing task/slot associations.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'Task ID to assign.' },
-        slotId: { type: 'string', description: 'Schedule slot ID.' },
-      },
-      required: ['taskId', 'slotId'],
-    },
-  },
-  {
-    name: 'unassign_task_from_slot',
-    description: 'Remove the task assignment from a schedule slot, reverting both slot and task to pending.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        slotId: { type: 'string', description: 'Schedule slot ID.' },
-      },
-      required: ['slotId'],
-    },
-  },
-  {
-    name: 'mark_slot_done',
-    description: 'Mark a schedule slot as done, optionally attaching a note.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        slotId: { type: 'string', description: 'Schedule slot ID.' },
-        note: { type: 'string', description: 'Optional completion note.' },
-      },
-      required: ['slotId'],
-    },
-  },
-  {
-    name: 'skip_slot',
-    description: 'Mark a schedule slot as skipped, optionally with a reason.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        slotId: { type: 'string', description: 'Schedule slot ID.' },
-        reason: { type: 'string', description: 'Optional reason for skipping.' },
-      },
-      required: ['slotId'],
-    },
-  },
-  {
-    name: 'update_slot',
-    description: 'Update arbitrary fields on a schedule slot (status, taskId, note).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        slotId: { type: 'string', description: 'Schedule slot ID.' },
         status: {
           type: 'string',
           enum: ['pending', 'in-progress', 'done', 'skipped'],
+          description: 'Slot status (update action).',
         },
-        taskId: { type: ['string', 'null'], description: 'Set null to unassign task.' },
-        note: { type: ['string', 'null'], description: 'Set null to clear note.' },
+        note: { type: 'string', description: 'Note for done/update actions.' },
+        reason: { type: 'string', description: 'Reason for skip action.' },
       },
-      required: ['slotId'],
+      required: ['action'],
     },
+  },
+  {
+    name: 'health',
+    description: 'Quick health check. Returns API status and goal count.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
   },
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Tool dispatch
+// Dispatch helpers
 // ---------------------------------------------------------------------------
 
 type Args = Record<string, unknown>;
 
-async function dispatch(name: string, args: Args): Promise<unknown> {
-  switch (name) {
-    // Health / Board
-    case 'health': {
-      const allGoals = await goalsService.listGoals({});
-      return { status: 'ok', goals: allGoals.length };
-    }
-    case 'get_board':
-      return boardService.getBoard();
+function requireArg<T>(args: Args, key: string, label?: string): T {
+  const val = args[key];
+  if (val === undefined || val === null) {
+    throw new AppError(400, `Missing required field: ${label ?? key}`);
+  }
+  return val as T;
+}
 
-    // Goals
-    case 'list_goals':
-      return goalsService.listGoals({ focus: args.focus as string | undefined });
-    case 'get_goal':
-      return goalsService.getGoal(args.id as string);
-    case 'create_goal':
+function optArg<T>(args: Args, key: string): T | undefined {
+  return args[key] as T | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Domain dispatchers
+// ---------------------------------------------------------------------------
+
+async function dispatchGoals(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'list':
+      return goalsService.listGoals({ focus: optArg<string>(args, 'focus') });
+    case 'get':
+      return goalsService.getGoal(requireArg<string>(args, 'id'));
+    case 'create':
       return goalsService.createGoal({
-        emoji: args.emoji as string,
-        name: args.name as string,
-        focus: (args.focus as 'sprint' | 'steady' | 'simmer' | 'dormant' | undefined) ?? 'steady',
-        timeline: args.timeline as string | undefined,
-        story: args.story as string | undefined,
+        emoji: requireArg<string>(args, 'emoji'),
+        name: requireArg<string>(args, 'name'),
+        focus: (optArg<string>(args, 'focus') as 'sprint' | 'steady' | 'simmer' | 'dormant' | undefined) ?? 'steady',
+        timeline: optArg<string>(args, 'timeline'),
+        story: optArg<string>(args, 'story'),
       });
-    case 'update_goal':
-      return goalsService.updateGoal(args.id as string, {
-        emoji: args.emoji as string | undefined,
-        name: args.name as string | undefined,
-        focus: args.focus as 'sprint' | 'steady' | 'simmer' | 'dormant' | undefined,
-        timeline: args.timeline as string | null | undefined,
-        story: args.story as string | null | undefined,
-        sortOrder: args.sortOrder as number | undefined,
+    case 'update':
+      return goalsService.updateGoal(requireArg<string>(args, 'id'), {
+        emoji: optArg<string>(args, 'emoji'),
+        name: optArg<string>(args, 'name'),
+        focus: optArg<string>(args, 'focus') as 'sprint' | 'steady' | 'simmer' | 'dormant' | undefined,
+        timeline: optArg<string | null>(args, 'timeline'),
+        story: optArg<string | null>(args, 'story'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
       });
-    case 'delete_goal':
-      await goalsService.deleteGoal(args.id as string);
+    case 'delete':
+      await goalsService.deleteGoal(requireArg<string>(args, 'id'));
       return { deleted: true };
+    default:
+      throw new AppError(400, `Unknown goals action: ${action}`);
+  }
+}
 
-    // Initiatives
-    case 'list_initiatives':
+async function dispatchInitiatives(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'list':
       return initiativesService.listInitiatives({
-        goalId: args.goalId as string | undefined,
-        status: args.status as string | undefined,
+        goalId: optArg<string>(args, 'goalId'),
+        status: optArg<string>(args, 'status'),
       });
-    case 'get_initiative':
-      return initiativesService.getInitiative(args.id as string);
-    case 'create_initiative':
+    case 'get':
+      return initiativesService.getInitiative(requireArg<string>(args, 'id'));
+    case 'create':
       return initiativesService.createInitiative({
-        emoji: args.emoji as string,
-        name: args.name as string,
-        goalId: args.goalId as string | undefined,
-        mission: args.mission as string | undefined,
-        status: (args.status as 'active' | 'backlog' | 'paused' | 'completed' | undefined) ?? 'active',
+        emoji: requireArg<string>(args, 'emoji'),
+        name: requireArg<string>(args, 'name'),
+        goalId: optArg<string>(args, 'goalId'),
+        mission: optArg<string>(args, 'mission'),
+        status: (optArg<string>(args, 'status') as 'active' | 'backlog' | 'paused' | 'completed' | undefined) ?? 'active',
       });
-    case 'update_initiative':
-      return initiativesService.updateInitiative(args.id as string, {
-        emoji: args.emoji as string | undefined,
-        name: args.name as string | undefined,
-        status: args.status as 'active' | 'backlog' | 'paused' | 'completed' | undefined,
-        mission: args.mission as string | null | undefined,
-        goalId: args.goalId as string | null | undefined,
-        sortOrder: args.sortOrder as number | undefined,
+    case 'update':
+      return initiativesService.updateInitiative(requireArg<string>(args, 'id'), {
+        emoji: optArg<string>(args, 'emoji'),
+        name: optArg<string>(args, 'name'),
+        status: optArg<string>(args, 'status') as 'active' | 'backlog' | 'paused' | 'completed' | undefined,
+        mission: optArg<string | null>(args, 'mission'),
+        goalId: optArg<string | null>(args, 'goalId'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
       });
-    case 'complete_initiative':
-      return initiativesService.completeInitiative(args.id as string);
-    case 'delete_initiative':
-      await initiativesService.deleteInitiative(args.id as string);
+    case 'complete':
+      return initiativesService.completeInitiative(requireArg<string>(args, 'id'));
+    case 'delete':
+      await initiativesService.deleteInitiative(requireArg<string>(args, 'id'));
       return { deleted: true };
+    default:
+      throw new AppError(400, `Unknown initiatives action: ${action}`);
+  }
+}
 
-    // Tasks
-    case 'list_tasks':
+async function dispatchTasks(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    // Core CRUD
+    case 'list':
       return tasksService.listTasks({
-        initiativeId: args.initiativeId as string | undefined,
-        status: args.status as string | string[] | undefined,
+        initiativeId: optArg<string>(args, 'initiativeId'),
+        status: optArg<string | string[]>(args, 'status'),
       });
-    case 'get_task':
-      return tasksService.getTask(args.id as string);
-    case 'create_task':
+    case 'get':
+      return tasksService.getTask(requireArg<string>(args, 'id'));
+    case 'create':
       return tasksService.createTask({
-        name: args.name as string,
-        objective: args.objective as string,
-        initiativeId: args.initiativeId as string | undefined,
-        emoji: args.emoji as string | undefined,
-        requirements: (args.requirements as string[] | undefined) ?? [],
-        tests: (args.tests as string[] | undefined) ?? [],
+        name: requireArg<string>(args, 'name'),
+        objective: requireArg<string>(args, 'objective'),
+        initiativeId: optArg<string>(args, 'initiativeId'),
+        emoji: optArg<string>(args, 'emoji'),
+        requirements: (optArg<string[]>(args, 'requirements')) ?? [],
+        tests: (optArg<string[]>(args, 'tests')) ?? [],
       });
-    case 'update_task':
-      return tasksService.updateTask(args.id as string, {
-        name: args.name as string | undefined,
-        objective: args.objective as string | undefined,
-        status: args.status as 'pending' | 'assigned' | 'in-progress' | 'done' | 'blocked' | 'cancelled' | undefined,
-        sortOrder: args.sortOrder as number | undefined,
+    case 'update':
+      return tasksService.updateTask(requireArg<string>(args, 'id'), {
+        name: optArg<string>(args, 'name'),
+        objective: optArg<string>(args, 'objective'),
+        status: optArg<string>(args, 'status') as any,
+        sortOrder: optArg<number>(args, 'sortOrder'),
       });
-    case 'start_task':
-      return tasksService.startTask(args.id as string);
-    case 'complete_task':
-      return tasksService.doneTask(args.id as string, {
-        summary: args.summary as string,
-        outputs: (args.outputs as Array<{ label: string; url?: string }> | undefined) ?? null,
+    case 'start':
+      return tasksService.startTask(requireArg<string>(args, 'id'));
+    case 'complete':
+      return tasksService.doneTask(requireArg<string>(args, 'id'), {
+        summary: requireArg<string>(args, 'summary'),
+        outputs: (optArg<Array<{ label: string; url?: string }>>(args, 'outputs')) ?? null,
       });
-    case 'block_task':
-      return tasksService.blockTask(args.id as string, { reason: args.reason as string });
-    case 'cancel_task':
-      return tasksService.cancelTask(args.id as string);
-    case 'delete_task':
-      await tasksService.deleteTask(args.id as string);
+    case 'block':
+      return tasksService.blockTask(requireArg<string>(args, 'id'), {
+        reason: requireArg<string>(args, 'reason'),
+      });
+    case 'cancel':
+      return tasksService.cancelTask(requireArg<string>(args, 'id'));
+    case 'delete':
+      await tasksService.deleteTask(requireArg<string>(args, 'id'));
       return { deleted: true };
 
     // Requirements
     case 'add_requirement':
-      return tasksService.addRequirement(args.taskId as string, args.description as string);
+      return tasksService.addRequirement(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'description'),
+      );
     case 'update_requirement':
-      return tasksService.updateRequirement(args.taskId as string, args.reqId as string, {
-        description: args.description as string | undefined,
-        completed: args.completed as boolean | undefined,
-      });
+      return tasksService.updateRequirement(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'reqId'),
+        {
+          description: optArg<string>(args, 'description'),
+          completed: optArg<boolean>(args, 'completed'),
+        },
+      );
     case 'check_requirement':
-      return tasksService.checkRequirement(args.taskId as string, args.reqId as string, true);
+      return tasksService.checkRequirement(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'reqId'),
+        true,
+      );
     case 'uncheck_requirement':
-      return tasksService.checkRequirement(args.taskId as string, args.reqId as string, false);
+      return tasksService.checkRequirement(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'reqId'),
+        false,
+      );
     case 'delete_requirement':
-      await tasksService.deleteRequirement(args.taskId as string, args.reqId as string);
+      await tasksService.deleteRequirement(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'reqId'),
+      );
       return { deleted: true };
 
     // Tests
     case 'add_test':
-      return tasksService.addTest(args.taskId as string, args.description as string);
+      return tasksService.addTest(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'description'),
+      );
     case 'update_test':
-      return tasksService.updateTest(args.taskId as string, args.testId as string, {
-        description: args.description as string | undefined,
-        passed: args.passed as boolean | undefined,
-      });
+      return tasksService.updateTest(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'testId'),
+        {
+          description: optArg<string>(args, 'description'),
+          passed: optArg<boolean>(args, 'passed'),
+        },
+      );
     case 'delete_test':
-      await tasksService.deleteTest(args.taskId as string, args.testId as string);
+      await tasksService.deleteTest(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'testId'),
+      );
       return { deleted: true };
 
     // Outputs
     case 'add_output':
-      return tasksService.addOutput(args.taskId as string, args.label as string, args.url as string | undefined);
+      return tasksService.addOutput(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'label'),
+        optArg<string>(args, 'url'),
+      );
     case 'delete_output':
-      await tasksService.deleteOutput(args.taskId as string, args.outputId as string);
+      await tasksService.deleteOutput(
+        requireArg<string>(args, 'id'),
+        requireArg<string>(args, 'outputId'),
+      );
       return { deleted: true };
 
-    // Schedule
-    case 'get_schedule_today':
-      return scheduleService.getTodaySlots();
-    case 'get_schedule_week':
-      return scheduleService.getWeekSlots((args.weekStart as string | undefined) ?? today());
-    case 'generate_week_plan':
-      return scheduleService.generateWeekPlan(args.weekStart as string | undefined);
-    case 'assign_task_to_slot':
-      return scheduleService.assignTask(args.taskId as string, args.slotId as string);
-    case 'unassign_task_from_slot':
-      return scheduleService.unassignTask(args.slotId as string);
-    case 'mark_slot_done':
-      return scheduleService.doneSlot(args.slotId as string, { note: args.note as string | undefined });
-    case 'skip_slot':
-      return scheduleService.skipSlot(args.slotId as string, { reason: args.reason as string | undefined });
-    case 'update_slot':
-      return scheduleService.updateSlot(args.slotId as string, {
-        status: args.status as 'pending' | 'in-progress' | 'done' | 'skipped' | undefined,
-        taskId: args.taskId as string | null | undefined,
-        note: args.note as string | null | undefined,
-      });
+    default:
+      throw new AppError(400, `Unknown tasks action: ${action}`);
+  }
+}
 
+async function dispatchSchedule(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'today':
+      return scheduleService.getTodaySlots();
+    case 'week':
+      return scheduleService.getWeekSlots((optArg<string>(args, 'weekStart')) ?? today());
+    case 'generate':
+      return scheduleService.generateWeekPlan(optArg<string>(args, 'weekStart'));
+    case 'assign':
+      return scheduleService.assignTask(
+        requireArg<string>(args, 'taskId'),
+        requireArg<string>(args, 'slotId'),
+      );
+    case 'unassign':
+      return scheduleService.unassignTask(requireArg<string>(args, 'slotId'));
+    case 'done':
+      return scheduleService.doneSlot(requireArg<string>(args, 'slotId'), {
+        note: optArg<string>(args, 'note'),
+      });
+    case 'skip':
+      return scheduleService.skipSlot(requireArg<string>(args, 'slotId'), {
+        reason: optArg<string>(args, 'reason'),
+      });
+    case 'update':
+      return scheduleService.updateSlot(requireArg<string>(args, 'slotId'), {
+        status: optArg<string>(args, 'status') as any,
+        taskId: optArg<string | null>(args, 'taskId'),
+        note: optArg<string | null>(args, 'note'),
+      });
+    default:
+      throw new AppError(400, `Unknown schedule action: ${action}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Top-level dispatch
+// ---------------------------------------------------------------------------
+
+async function dispatch(name: string, args: Args): Promise<unknown> {
+  switch (name) {
+    case 'board':
+      return boardService.getBoard();
+    case 'health': {
+      const allGoals = await goalsService.listGoals({});
+      return { status: 'ok', goals: allGoals.length };
+    }
+    case 'goals':
+      return dispatchGoals(requireArg<string>(args, 'action'), args);
+    case 'initiatives':
+      return dispatchInitiatives(requireArg<string>(args, 'action'), args);
+    case 'tasks':
+      return dispatchTasks(requireArg<string>(args, 'action'), args);
+    case 'schedule':
+      return dispatchSchedule(requireArg<string>(args, 'action'), args);
     default:
       throw new AppError(404, `Unknown tool: ${name}`);
   }
