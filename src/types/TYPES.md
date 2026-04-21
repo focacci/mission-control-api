@@ -21,6 +21,10 @@
   - [Output Schema](#output-schema)
   - [Schedule Schemas](#schedule-schemas)
   - [Agent Schemas](#agent-schemas)
+  - [Chat Schemas](#chat-schemas)
+  - [Conversation Schemas](#conversation-schemas)
+  - [Invocation Schemas](#invocation-schemas)
+- [Constants (Phase 1)](#constants-phase-1)
 - [Inferred TypeScript Types](#inferred-typescript-types)
 
 ---
@@ -326,6 +330,116 @@ Input for `PATCH /api/agents/:id`. Only `systemPrompt` is editable; `name` and `
 
 ---
 
+### Chat Schemas
+
+#### `ChatContextSchema`
+
+```ts
+{
+  type: string (min 1),
+  id?: string,
+  name?: string,
+  emoji?: string,
+  section?: string,
+  date?: string,
+}
+```
+
+Optional view header attached to a chat turn so the agent knows what the user is looking at. Serialized into the prompt as a single `[Context: …]` line.
+
+#### `ChatRequestSchema`
+
+```ts
+{
+  message: string (min 1),
+  agentId?: string,
+  context?: ChatContext,
+  sessionId?: string,
+}
+```
+
+Body schema for `POST /api/chat`. `agentId` defaults to `intella` at the service layer. If `sessionId` is provided and exists, it's reused; otherwise the service dedups by `(agentId, context.type, context.id)`.
+
+---
+
+### Conversation Schemas
+
+#### `CreateSessionSchema`
+
+```ts
+{
+  agentId: string (min 1),
+  contextType?: string | null,
+  contextId?: string | null,
+  title?: string | null,
+}
+```
+
+Not exposed on a route in Phase 1 (sessions are created implicitly by the chat service) but kept for internal consumers and forthcoming admin endpoints.
+
+#### `ListSessionsQuerySchema`
+
+```ts
+{
+  agentId?: string,
+  contextType?: string,
+  contextId?: string,
+  limit?: number (int, 1..200, coerced from string),
+}
+```
+
+Query schema for `GET /api/chat/sessions`. `limit` defaults to 50 at the service layer when omitted.
+
+#### `ListMessagesQuerySchema`
+
+```ts
+{
+  limit?: number (int, 1..500, coerced),
+  before?: string,   // messageId anchor for reverse-chronological paging
+}
+```
+
+Query schema for `GET /api/chat/sessions/:id/messages`.
+
+---
+
+### Invocation Schemas
+
+#### `ListInvocationsQuerySchema`
+
+```ts
+{
+  trigger?: 'slot_start' | 'brief' | 'user_chat' | 'manual',
+  status?: 'running' | 'complete' | 'error' | 'timeout' | 'cancelled',
+  limit?: number (int, 1..200, coerced),
+  since?: string,    // ISO timestamp filter on started_at
+}
+```
+
+Query schema for `GET /api/invocations`.
+
+---
+
+## Constants (Phase 1)
+
+### `INVOCATION_TRIGGERS`
+
+```ts
+const INVOCATION_TRIGGERS = ['slot_start', 'brief', 'user_chat', 'manual'] as const;
+```
+
+Source of truth for the `agent_invocations.trigger` enum. Shared by the Zod schema and the service layer.
+
+### `INVOCATION_STATUSES`
+
+```ts
+const INVOCATION_STATUSES = ['running', 'complete', 'error', 'timeout', 'cancelled'] as const;
+```
+
+Source of truth for the `agent_invocations.status` enum.
+
+---
+
 ## Inferred TypeScript Types
 
 These are derived from the Zod schemas via `z.infer<>` and used as function parameter types in service files.
@@ -347,3 +461,9 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `AssignTaskInput` | `AssignTaskSchema` |
 | `CreateAgentInput` | `CreateAgentSchema` |
 | `UpdateAgentInput` | `UpdateAgentSchema` |
+| `ChatContextInput` | `ChatContextSchema` |
+| `ChatRequestInput` | `ChatRequestSchema` |
+| `CreateSessionInputZ` | `CreateSessionSchema` |
+| `ListSessionsQuery` | `ListSessionsQuerySchema` |
+| `ListMessagesQuery` | `ListMessagesQuerySchema` |
+| `ListInvocationsQuery` | `ListInvocationsQuerySchema` |

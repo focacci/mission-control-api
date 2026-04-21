@@ -183,6 +183,54 @@ export const UpdateAgentSchema = z.object({
   systemPrompt: z.string().nullable().optional(),
 });
 
+// Chat
+export const ChatContextSchema = z.object({
+  type: z.string().min(1),
+  id: z.string().optional(),
+  name: z.string().optional(),
+  emoji: z.string().optional(),
+  section: z.string().optional(),
+  date: z.string().optional(),
+});
+
+export const ChatRequestSchema = z.object({
+  message: z.string().min(1),
+  agentId: z.string().optional(),
+  context: ChatContextSchema.optional(),
+  sessionId: z.string().optional(),
+});
+
+// Conversations
+export const CreateSessionSchema = z.object({
+  agentId: z.string().min(1),
+  contextType: z.string().nullable().optional(),
+  contextId: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+});
+
+export const ListSessionsQuerySchema = z.object({
+  agentId: z.string().optional(),
+  contextType: z.string().optional(),
+  contextId: z.string().optional(),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
+export const ListMessagesQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(500).optional(),
+  before: z.string().optional(),
+});
+
+// Invocations
+export const INVOCATION_TRIGGERS = ['slot_start', 'brief', 'user_chat', 'manual'] as const;
+export const INVOCATION_STATUSES = ['running', 'complete', 'error', 'timeout', 'cancelled'] as const;
+
+export const ListInvocationsQuerySchema = z.object({
+  trigger: z.enum(INVOCATION_TRIGGERS).optional(),
+  status: z.enum(INVOCATION_STATUSES).optional(),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+  since: z.string().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
@@ -202,3 +250,9 @@ export type SkipSlotInput = z.infer<typeof SkipSlotSchema>;
 export type AssignTaskInput = z.infer<typeof AssignTaskSchema>;
 export type CreateAgentInput = z.infer<typeof CreateAgentSchema>;
 export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;
+export type ChatContextInput = z.infer<typeof ChatContextSchema>;
+export type ChatRequestInput = z.infer<typeof ChatRequestSchema>;
+export type CreateSessionInputZ = z.infer<typeof CreateSessionSchema>;
+export type ListSessionsQuery = z.infer<typeof ListSessionsQuerySchema>;
+export type ListMessagesQuery = z.infer<typeof ListMessagesQuerySchema>;
+export type ListInvocationsQuery = z.infer<typeof ListInvocationsQuerySchema>;

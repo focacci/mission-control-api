@@ -29,6 +29,13 @@
       "when": 1776902400000,
       "tag": "0003_add_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776988800000,
+      "tag": "0004_superb_yellowjacket",
+      "breakpoints": true
     }
   ]
 }

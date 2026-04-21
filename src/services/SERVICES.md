@@ -46,6 +46,27 @@
   - [`updateAgent`](#updateagentid-input)
   - [`deleteAgent`](#deleteagentid)
   - [`repairAgents`](#repairagents)
+- [Chat Service](#chat-service)
+  - [`sendMessage`](#sendmessagereq)
+- [Conversations Service](#conversations-service)
+  - [`createSession`](#createsessioninput)
+  - [`findOrCreateSession`](#findorcreatesessioninput)
+  - [`getSession`](#getsessionid)
+  - [`listSessions`](#listsessionsopts)
+  - [`deleteSession`](#deletesessionid)
+  - [`appendMessage`](#appendmessageinput)
+  - [`listMessages`](#listmessagessessionid-opts)
+  - [`getMessageCount`](#getmessagecountsessionid)
+- [Invocations Service](#invocations-service)
+  - [`startInvocation`](#startinvocationinput)
+  - [`completeInvocation`](#completeinvocationid-input)
+  - [`failInvocation`](#failinvocationid-input)
+  - [`listInvocations`](#listinvocationsopts)
+  - [`getInvocation`](#getinvocationid)
+  - [`getTodayTokenUsage`](#gettodaytokenusage)
+- [Tool Calls Service](#tool-calls-service)
+  - [`recordToolCallStart`](#recordtoolcallstartinput)
+  - [`recordToolCallResult`](#recordtoolcallresultid-input)
 
 ---
 
@@ -455,3 +476,210 @@ repairAgents(): Promise<OpenclawAgent[]>
 Recovery path for when a tracked openclaw agent has gone missing from the CLI (e.g. the user deleted it directly via `openclaw agents delete`). For every DB row whose id is not present in `openclaw agents list`, re-creates the openclaw agent with that row's workspace, model, and `SOUL.md`.
 
 **Does not import external openclaw agents** — rows that exist only in the CLI are ignored, and DB rows are never deleted by this function. Returns the full DB snapshot ordered by `created_at`. Exposed via `POST /api/agents/repair`.
+
+---
+
+## Chat Service
+
+Entry point for user-initiated chat turns. Resolves (or creates) a `chat_sessions` row, persists the user message, starts an `agent_invocations` row, proxies the turn through the `openclaw` CLI, then records the assistant message and completes (or fails) the invocation. Phase 2 replaces the subprocess with an in-process Anthropic SDK loop.
+
+### `sendMessage(req)`
+
+```ts
+sendMessage(req: {
+  message: string;
+  agentId?: string;
+  context?: { type: string; id?: string; name?: string; emoji?: string; section?: string; date?: string };
+  sessionId?: string;
+}): Promise<{ reply: string; sessionId: string; agentId: string; invocationId: string }>
+```
+
+1. Resolves the agent id (`req.agentId` or the `intella` default).
+2. Builds a context header (matches the previous stringly-typed prompt).
+3. Resolves the session: if `sessionId` is provided and exists, reuses it; otherwise `findOrCreateSession` by `(agentId, context.type, context.id)`.
+4. Appends the user message via `appendMessage`.
+5. Starts an invocation with `trigger='user_chat'` and `model = AGENT_DEFAULT_MODEL` (env, defaults to `claude-opus-4-6`).
+6. Runs `openclaw agent --agent <id> --session-id <legacy-key> --message <prompt> --json --timeout 120`.
+7. On success: appends the assistant message linked to the invocation and calls `completeInvocation` with `tokensIn: 0 / tokensOut: 0` (Phase 2 populates real counts).
+8. On failure: calls `failInvocation` with the error message and rethrows a wrapped error.
+
+The legacy `intella-ios-<agent>-<ctx>-<id>` key is still passed to openclaw so existing on-disk sessions aren't orphaned while Phase 2 is pending.
+
+---
+
+## Conversations Service
+
+CRUD over `chat_sessions` and `chat_messages`. The DB is the source of truth for transcripts — the iOS client, the brief generator, and the debugging UI all read from here.
+
+### `createSession(input)`
+
+```ts
+createSession(input: {
+  agentId: string;
+  contextType?: string | null;
+  contextId?: string | null;
+  title?: string | null;
+}): Promise<ChatSession>
+```
+
+Inserts a new session. `createdAt` and `lastMessageAt` are both set to `now()`.
+
+### `findOrCreateSession(input)`
+
+```ts
+findOrCreateSession(input: {
+  agentId: string;
+  contextType: string | null;
+  contextId: string | null;
+}): Promise<ChatSession>
+```
+
+Returns the most recent session matching the `(agentId, contextType, contextId)` tuple (null matches null in the DB), or creates one. Used by the chat service to dedup sessions per view.
+
+### `getSession(id)`
+
+Returns a single row. Throws `notFound('ChatSession', id)` if missing.
+
+### `listSessions(opts)`
+
+```ts
+listSessions(opts: {
+  agentId?: string;
+  contextType?: string;
+  contextId?: string;
+  limit?: number;
+}): Promise<ChatSession[]>
+```
+
+Sessions ordered by `lastMessageAt` desc. Default limit 50, max 200 (enforced at the route layer).
+
+### `deleteSession(id)`
+
+Hard delete in a synchronous transaction: removes all tool-call rows for the session's messages, then the messages, then the session. Throws `notFound` if missing.
+
+### `appendMessage(input)`
+
+```ts
+appendMessage(input: {
+  sessionId: string;
+  invocationId?: string | null;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}): Promise<ChatMessage>
+```
+
+Auto-increments `sortOrder` (computed from `MAX(sort_order) + 1`), updates the parent session's `lastMessageAt`, and — if this is the first user message on a session without a title — derives the title as the first 80 characters of `content`. Wraps the insert and session update in a transaction. Throws `notFound` if the session doesn't exist.
+
+### `listMessages(sessionId, opts)`
+
+```ts
+listMessages(sessionId: string, opts?: { limit?: number; before?: string }): Promise<ChatMessage[]>
+```
+
+Returns messages in `sortOrder` ascending. `before` is a message id used for reverse-chronological pagination (returns messages with a lower `sortOrder` than the anchor). Default limit 100, max 500.
+
+### `getMessageCount(sessionId)`
+
+Cheap count helper used by `GET /api/chat/sessions/:id`.
+
+---
+
+## Invocations Service
+
+Manages the lifecycle of `agent_invocations` rows. Every agent run — chat turns, scheduled slot starts, brief generation, manual debug runs — flows through this service.
+
+### `startInvocation(input)`
+
+```ts
+startInvocation(input: {
+  trigger: 'slot_start' | 'brief' | 'user_chat' | 'manual';
+  triggerRefId?: string | null;
+  agentId: string;
+  sessionId: string;
+  model: string;
+}): Promise<AgentInvocation>
+```
+
+Inserts a row with `status='running'`, `startedAt = now()`, `tokensIn = 0`, `tokensOut = 0`.
+
+### `completeInvocation(id, input)`
+
+```ts
+completeInvocation(id: string, input: { tokensIn: number; tokensOut: number }): Promise<AgentInvocation>
+```
+
+Sets `status='complete'`, `endedAt = now()`, and records final token counts. Throws `notFound` if the invocation doesn't exist.
+
+### `failInvocation(id, input)`
+
+```ts
+failInvocation(id: string, input: {
+  error: string;
+  status?: 'error' | 'timeout' | 'cancelled';
+  tokensIn?: number;
+  tokensOut?: number;
+}): Promise<AgentInvocation>
+```
+
+Sets `status` (default `error`), `endedAt`, and `error`. Token counts are optional (partial-run bookkeeping).
+
+### `listInvocations(opts)`
+
+```ts
+listInvocations(opts?: {
+  limit?: number;
+  trigger?: InvocationTrigger;
+  status?: InvocationStatus;
+  since?: string;
+}): Promise<AgentInvocation[]>
+```
+
+Ordered by `startedAt` desc. Default limit 50, max 200.
+
+### `getInvocation(id)`
+
+```ts
+getInvocation(id: string): Promise<{
+  invocation: AgentInvocation;
+  messages: ChatMessage[];
+  toolCalls: ToolCallLog[];
+}>
+```
+
+Full detail for the debugging UI: the invocation row plus every message and tool call that references it. Throws `notFound` if missing.
+
+### `getTodayTokenUsage()`
+
+Sums `tokensIn + tokensOut` across all invocations started since the current UTC day boundary. Used by the Phase 2 runner to enforce `AGENT_DAILY_TOKEN_CAP`.
+
+---
+
+## Tool Calls Service
+
+Records Anthropic-format tool calls as they start and resolve. Populated by the Phase 2 runner; stubs exist in Phase 1 so downstream code can be wired up before the runner lands.
+
+### `recordToolCallStart(input)`
+
+```ts
+recordToolCallStart(input: {
+  id: string;               // Anthropic tool_use_id
+  messageId: string;        // assistant message that issued the tool_use block
+  invocationId: string;
+  toolName: string;
+  input: unknown;
+}): Promise<ToolCallLog>
+```
+
+Inserts a row with `startedAt = now()`, `output = null`, `isError = false`. JSON-encodes `input`.
+
+### `recordToolCallResult(id, input)`
+
+```ts
+recordToolCallResult(id: string, input: {
+  output: unknown;
+  isError: boolean;
+  durationMs: number;
+}): Promise<ToolCallLog>
+```
+
+Sets `output` (JSON-encoded), `isError`, `endedAt = now()`, and `durationMs`. Throws `notFound` if the tool-call row doesn't exist.

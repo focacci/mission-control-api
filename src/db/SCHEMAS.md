@@ -12,6 +12,10 @@
 - [`schedule_slots`](#schedule_slots)
 - [`week_goal_allocations`](#week_goal_allocations)
 - [`agents`](#agents)
+- [`chat_sessions`](#chat_sessions)
+- [`agent_invocations`](#agent_invocations)
+- [`chat_messages`](#chat_messages)
+- [`tool_call_log`](#tool_call_log)
 - [Relationships Overview](#relationships-overview)
 
 ---
@@ -201,6 +205,78 @@ Local cache of OpenClaw agents managed by this API. The DB is the source of trut
 
 ---
 
+## `chat_sessions`
+
+Conversation container. Groups messages exchanged with a specific agent, optionally scoped to a view (`contextType` + `contextId`). A session survives across many agent invocations; the DB is the source of truth for the transcript (OpenClaw's own `--session-id` is no longer relied on for continuity).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `agent_id` | `text` | which agent this session is with |
+| `context_type` | `text` nullable | e.g. `task`, `goal`, `slot`; null for freeform chat |
+| `context_id` | `text` nullable | id of the scoped entity; null for freeform |
+| `title` | `text` nullable | derived from the first user message (first 80 chars) |
+| `created_at` | `text` | ISO timestamp |
+| `last_message_at` | `text` | ISO timestamp — updated on every message append |
+
+---
+
+## `agent_invocations`
+
+One row per agent run (chat turn, scheduled slot-start, brief generation, manual debug run). Holds lifecycle status and token accounting. Messages and tool calls reference the invocation, not vice versa — an invocation may produce zero or many messages.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `trigger` | `text` enum | `slot_start` \| `brief` \| `user_chat` \| `manual` |
+| `trigger_ref_id` | `text` nullable | external entity that caused this run (e.g. `slotId`, `taskId`) |
+| `agent_id` | `text` | which agent ran |
+| `session_id` | `text` | chat_sessions.id (no FK — invocations outlive session deletes in some debug flows) |
+| `status` | `text` enum | `running` \| `complete` \| `error` \| `timeout` \| `cancelled` — default `running` |
+| `model` | `text` | model key the invocation was issued against |
+| `started_at` | `text` | ISO timestamp |
+| `ended_at` | `text` nullable | ISO timestamp when the invocation resolved |
+| `error` | `text` nullable | error message on failure |
+| `tokens_in` | `integer` default 0 | prompt tokens billed to this invocation |
+| `tokens_out` | `integer` default 0 | completion tokens |
+
+---
+
+## `chat_messages`
+
+Ordered turns within a session. Assistant messages link back to the `agent_invocations` row that produced them; user messages carry a `null` invocation_id until the following agent run begins.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `session_id` | `text` FK → `chat_sessions.id` | `ON DELETE CASCADE` |
+| `invocation_id` | `text` nullable | `agent_invocations.id` for assistant turns; null for user turns |
+| `role` | `text` enum | `user` \| `assistant` \| `system` |
+| `content` | `text` | final rendered text — partial stream deltas are not persisted |
+| `sort_order` | `integer` | monotonic per-session (starts at 0) |
+| `created_at` | `text` | ISO timestamp |
+
+---
+
+## `tool_call_log`
+
+Structured record of every tool the model called during an invocation (primarily Intella MCP tools). `id` uses Anthropic's `tool_use_id` so it's stable across correlating events. Populated in Phase 2 when the in-process runner replaces the openclaw subprocess.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | Anthropic tool_use_id |
+| `message_id` | `text` FK → `chat_messages.id` | `ON DELETE CASCADE` |
+| `invocation_id` | `text` | denormalized for fast per-invocation queries |
+| `tool_name` | `text` | e.g. `board`, `tasks.complete` |
+| `input` | `text` | JSON-encoded call arguments |
+| `output` | `text` nullable | JSON-encoded tool result; null until resolved |
+| `is_error` | `integer` boolean | default `false` |
+| `started_at` | `text` | ISO timestamp |
+| `ended_at` | `text` nullable | ISO timestamp when the result arrived |
+| `duration_ms` | `integer` nullable | populated on resolution |
+
+---
+
 ## Relationships Overview
 
 ```
@@ -214,6 +290,12 @@ goals
 week_plans
   ├── schedule_slots       (week_plan_id → week_plans.id, CASCADE)
   └── week_goal_allocations (week_plan_id → week_plans.id, CASCADE)
+
+chat_sessions
+  └── chat_messages (session_id → chat_sessions.id, CASCADE)
+        └── tool_call_log (message_id → chat_messages.id, CASCADE)
+
+agent_invocations (soft link via session_id / trigger_ref_id — no FK)
 ```
 
 **Delete behavior:** deleting a goal hard-deletes its initiatives and their tasks in a transaction (service-level cascade). The FK `ON DELETE SET NULL` is a safety net for orphaned references; the service never relies on it alone.

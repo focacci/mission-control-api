@@ -150,3 +150,61 @@ export const weekGoalAllocations = sqliteTable('week_goal_allocations', {
   targetSlots: integer('target_slots').notNull(),
   assignedSlots: integer('assigned_slots').notNull().default(0),
 });
+
+export const chatSessions = sqliteTable('chat_sessions', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  contextType: text('context_type'),
+  contextId: text('context_id'),
+  title: text('title'),
+  createdAt: text('created_at').notNull(),
+  lastMessageAt: text('last_message_at').notNull(),
+});
+
+export const agentInvocations = sqliteTable('agent_invocations', {
+  id: text('id').primaryKey(),
+  trigger: text('trigger', {
+    enum: ['slot_start', 'brief', 'user_chat', 'manual'],
+  }).notNull(),
+  triggerRefId: text('trigger_ref_id'),
+  agentId: text('agent_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  status: text('status', {
+    enum: ['running', 'complete', 'error', 'timeout', 'cancelled'],
+  })
+    .notNull()
+    .default('running'),
+  model: text('model').notNull(),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at'),
+  error: text('error'),
+  tokensIn: integer('tokens_in').notNull().default(0),
+  tokensOut: integer('tokens_out').notNull().default(0),
+});
+
+export const chatMessages = sqliteTable('chat_messages', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => chatSessions.id, { onDelete: 'cascade' }),
+  invocationId: text('invocation_id'),
+  role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+  content: text('content').notNull(),
+  sortOrder: integer('sort_order').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+export const toolCallLog = sqliteTable('tool_call_log', {
+  id: text('id').primaryKey(),
+  messageId: text('message_id')
+    .notNull()
+    .references(() => chatMessages.id, { onDelete: 'cascade' }),
+  invocationId: text('invocation_id').notNull(),
+  toolName: text('tool_name').notNull(),
+  input: text('input').notNull(),
+  output: text('output'),
+  isError: integer('is_error', { mode: 'boolean' }).notNull().default(false),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at'),
+  durationMs: integer('duration_ms'),
+});

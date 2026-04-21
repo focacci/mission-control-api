@@ -150,6 +150,17 @@ Each task can have:
 - **Tests** — acceptance criteria / verification steps
 - **Outputs** — artifacts produced (files, URLs, wikilinks)
 
+### Agent control layer (Phase 1)
+
+Every chat turn is now persisted. The DB is the source of truth for conversations, not OpenClaw's session cache.
+
+- `chat_sessions` groups messages by `(agentId, contextType, contextId)`.
+- `chat_messages` stores each user/assistant turn in `sortOrder`.
+- `agent_invocations` tracks the lifecycle of every agent run (chat, scheduled slot-start, brief generation).
+- `tool_call_log` captures every MCP tool the model calls — populated starting in Phase 2.
+
+See [CONTROL_LAYER_PLAN.md](CONTROL_LAYER_PLAN.md) for the full phased plan.
+
 Goals have a **focus level** that controls weekly schedule allocation:
 
 | Focus | Icon | Weekly slots |
@@ -168,7 +179,12 @@ Goals have a **focus level** that controls weekly schedule allocation:
 | Goals | `/api/goals` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Initiatives | `/api/initiatives` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Tasks | `/api/tasks` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Schedule | `/api/schedule` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Board | `/api/board` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Agents | `/api/agents` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Chat | `/api/chat` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Conversations | `/api/chat/sessions` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Invocations | `/api/invocations` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 
 ### Quick examples
 
@@ -206,6 +222,7 @@ curl -X POST http://localhost:3737/api/tasks/<id>/done \
 | File | Contents |
 |------|----------|
 | [BLUEPRINT.md](BLUEPRINT.md) | Full system design, data model, business rules, Obsidian sync spec |
+| [CONTROL_LAYER_PLAN.md](CONTROL_LAYER_PLAN.md) | Phased plan for evolving the API from an openclaw proxy into a full control layer |
 | [src/db/SCHEMAS.md](src/db/SCHEMAS.md) | All table schemas with column descriptions and relationships |
 | [src/routes/ROUTES.md](src/routes/ROUTES.md) | Every route, request shape, and response shape |
 | [src/services/SERVICES.md](src/services/SERVICES.md) | Every service function with parameter and behavior docs |

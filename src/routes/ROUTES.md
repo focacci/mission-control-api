@@ -14,6 +14,9 @@
 - [Schedule](#schedule)
 - [Board](#board)
 - [Agents](#agents)
+- [Chat](#chat)
+- [Conversations](#conversations)
+- [Invocations](#invocations)
 - [Error Handling](#error-handling)
 
 ---
@@ -189,6 +192,57 @@ A single row (id: `intella`) is seeded as the default agent (`isDefault: true`).
 - The `isDefault` flag is owned by Intella, not openclaw: the bootstrapped `intella` row is the sole `isDefault: true` agent, and all user-created agents are stored with `isDefault: false` regardless of what openclaw reports.
 - `POST /api/agents/repair` does **not** import external openclaw agents — it only re-creates openclaw agents for rows Intella already tracks.
 - Deleting the default agent (`isDefault: true`) returns a `400`. Deleting an unknown id returns `404`.
+
+---
+
+## Chat
+
+Single entry point for user-initiated chat turns. The handler persists the user message, starts an `agent_invocations` row, proxies the prompt through `openclaw`, and writes the assistant reply. Phase 2 will add an SSE streaming sibling route.
+
+| Method | Path | Description | Body | Response |
+|--------|------|-------------|------|----------|
+| `POST` | `/api/chat` | Send a message to an agent | `{ message, agentId?, context?, sessionId? }` | `{ reply, sessionId, agentId, invocationId }` |
+
+**Notes:**
+- `message` must be non-empty. `agentId` defaults to `intella`.
+- `context` is an optional view header (`{ type, id?, name?, emoji?, section?, date? }`) that is serialized into the prompt so the agent knows what the user is looking at.
+- `sessionId` (if provided and it exists) reuses the session; otherwise the service resolves one by `(agentId, context.type, context.id)` or creates a new one.
+- The `invocationId` in the response is the `agent_invocations.id` for the turn — use it with `GET /api/invocations/:id` to pull the full transcript + (Phase 2) tool-call trace.
+
+---
+
+## Conversations
+
+Read and manage persisted chat sessions and their transcripts. All reads are served directly from SQLite.
+
+| Method | Path | Description | Body / Query | Response |
+|--------|------|-------------|-------------|----------|
+| `GET` | `/api/chat/sessions` | List sessions | `?agentId=&contextType=&contextId=&limit=` | `ChatSession[]` (most recent first, default 50) |
+| `GET` | `/api/chat/sessions/:id` | Get session metadata + message count | — | `ChatSession & { messageCount: number }` |
+| `GET` | `/api/chat/sessions/:id/messages` | Paginated transcript | `?limit=&before=<messageId>` | `ChatMessage[]` (sortOrder ascending) |
+| `DELETE` | `/api/chat/sessions/:id` | Hard delete session (cascades messages + tool calls) | — | `204` |
+
+**Notes:**
+- `before=<messageId>` returns messages with a `sortOrder` lower than the anchor — use it for reverse-chronological scroll.
+- `limit` is clamped to 200 for sessions and 500 for messages.
+- `DELETE` removes all `chat_messages` and their `tool_call_log` rows in a single transaction.
+
+---
+
+## Invocations
+
+Read-only introspection over `agent_invocations`. Used by the debugging UI and, in later phases, by the brief generator to summarize activity.
+
+| Method | Path | Description | Body / Query | Response |
+|--------|------|-------------|-------------|----------|
+| `GET` | `/api/invocations` | List invocations | `?trigger=&status=&limit=&since=<ISO>` | `AgentInvocation[]` (most recent first, default 50) |
+| `GET` | `/api/invocations/:id` | Full detail: invocation + messages + tool calls | — | `{ invocation, messages: ChatMessage[], toolCalls: ToolCallLog[] }` |
+
+**Notes:**
+- `trigger` is one of `slot_start \| brief \| user_chat \| manual`.
+- `status` is one of `running \| complete \| error \| timeout \| cancelled`.
+- `since` is an ISO timestamp filter on `started_at`.
+- `toolCalls` is populated starting in Phase 2; Phase 1 invocations will return an empty array.
 
 ---
 
