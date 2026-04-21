@@ -218,11 +218,13 @@ Read and manage persisted chat sessions and their transcripts. All reads are ser
 | Method | Path | Description | Body / Query | Response |
 |--------|------|-------------|-------------|----------|
 | `GET` | `/api/chat/sessions` | List sessions | `?agentId=&contextType=&contextId=&limit=` | `ChatSession[]` (most recent first, default 50) |
+| `POST` | `/api/chat/sessions` | Explicitly create a fresh session (bypasses the find-or-create dedup used by `/api/chat`) | `{ agentId, contextType?, contextId?, title? }` | `201 ChatSession` |
 | `GET` | `/api/chat/sessions/:id` | Get session metadata + message count | — | `ChatSession & { messageCount: number }` |
 | `GET` | `/api/chat/sessions/:id/messages` | Paginated transcript | `?limit=&before=<messageId>` | `ChatMessage[]` (sortOrder ascending) |
 | `DELETE` | `/api/chat/sessions/:id` | Hard delete session (cascades messages + tool calls) | — | `204` |
 
 **Notes:**
+- `POST /api/chat/sessions` is the "new chat" entry point. `/api/chat` without a `sessionId` resumes the most recent matching `(agentId, contextType, contextId)` session — use this explicit create when you want a brand-new thread in the same context.
 - `before=<messageId>` returns messages with a `sortOrder` lower than the anchor — use it for reverse-chronological scroll.
 - `limit` is clamped to 200 for sessions and 500 for messages.
 - `DELETE` removes all `chat_messages` and their `tool_call_log` rows in a single transaction.

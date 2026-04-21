@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import * as conversationsService from '../services/conversations.service.js';
 import {
+  CreateSessionSchema,
   ListMessagesQuerySchema,
   ListSessionsQuerySchema,
 } from '../types/index.types.js';
@@ -10,6 +11,15 @@ export async function conversationsRoutes(app: FastifyInstance) {
   app.get('/api/chat/sessions', async request => {
     const query = ListSessionsQuerySchema.parse(request.query);
     return conversationsService.listSessions(query);
+  });
+
+  // POST /api/chat/sessions — explicitly create a fresh session. Use this
+  // instead of relying on findOrCreateSession when the caller wants a
+  // brand-new thread for the same (agentId, contextType, contextId) combo.
+  app.post('/api/chat/sessions', async (request, reply) => {
+    const body = CreateSessionSchema.parse(request.body);
+    const session = await conversationsService.createSession(body);
+    return reply.status(201).send(session);
   });
 
   // GET /api/chat/sessions/:id — session metadata + message count
