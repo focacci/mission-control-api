@@ -132,6 +132,7 @@ Week plan generation, slot queries, and slot lifecycle management.
 |--------|------|-------------|-------------|----------|
 | `GET` | `/api/schedule/today` | Get all slots for today (with task detail) | — | `SlotWithTask[]` (empty array if no plan for this week) |
 | `GET` | `/api/schedule/week` | Get all slots for a week | `?weekStart=YYYY-MM-DD` (defaults to current week) | `{ weekPlan, slots: SlotWithTask[], allocations: WeekGoalAllocation[] }` |
+| `GET` | `/api/schedule/range` | Get all slots in an inclusive date range | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both required) | `{ from, to, slots: SlotWithTask[] }` |
 | `POST` | `/api/schedule/generate` | Generate a new week plan | `{ weekStart?: string }` (defaults to current week's Sunday) | `201 { weekPlan, slots, allocations }` |
 | `POST` | `/api/schedule/sync` | (stub) Write-through to Obsidian SCHEDULE.md | — | `{ synced: false, message }` |
 | `PATCH` | `/api/schedule/slots/:id` | Update a slot | `{ status?, taskId?, note? }` | `ScheduleSlot` |
@@ -141,6 +142,7 @@ Week plan generation, slot queries, and slot lifecycle management.
 | `DELETE` | `/api/schedule/slots/:id/task` | Unassign the task from a slot | — | `ScheduleSlot` |
 
 **Notes:**
+- `GET /range` is week-plan-agnostic: it queries slots directly by `date`, so it spans plan boundaries. Returns `400` if `from > to` or either param is missing. Intended for month/year calendar views that need slot density across multiple weeks.
 - `POST /generate` returns `409` if a plan already exists for that week.
 - `POST /assign` sets `slot.type = 'task'`, `slot.status = 'pending'`, `task.status = 'assigned'`, and `task.slotId` in a transaction.
 - `DELETE /slots/:id/task` returns `400` if the slot has no assigned task. Clears `slot.taskId`, resets `slot.status = 'pending'`, and resets `task.status = 'pending'` + clears `task.slotId` in a transaction.

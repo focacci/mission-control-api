@@ -312,6 +312,14 @@ getWeekSlots(weekStart: string): Promise<{ weekPlan, slots: SlotWithTask[], allo
 
 Returns the full week plan, all slots with task enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. If no plan exists, returns `{ weekPlan: null, slots: [], allocations: [] }` — no generation is triggered.
 
+### `getSlotsInRange(from, to)`
+
+```ts
+getSlotsInRange(from: string, to: string): Promise<{ from, to, slots: SlotWithTask[] }>
+```
+
+Returns all slots whose `date` is within the inclusive `[from, to]` range, ordered by `datetime`, with task enrichment applied. Throws `AppError(400)` if `from > to`. Unlike `getWeekSlots`, this query is not keyed to a `weekPlans` row — it spans plan boundaries, so it's safe to call for arbitrary ranges (e.g., month grid, year overview).
+
 ### `generateWeekPlan(weekStart?)`
 
 ```ts

@@ -6,6 +6,7 @@ import {
   DoneSlotSchema,
   SkipSlotSchema,
   AssignTaskSchema,
+  AppError,
   today,
 } from '../types/index.types.js';
 
@@ -20,6 +21,17 @@ export async function scheduleRoutes(app: FastifyInstance) {
     const query = request.query as Record<string, string | undefined>;
     const weekStart = query.weekStart ?? today();
     return scheduleService.getWeekSlots(weekStart);
+  });
+
+  // GET /api/schedule/range?from=YYYY-MM-DD&to=YYYY-MM-DD
+  app.get('/api/schedule/range', async request => {
+    const query = request.query as Record<string, string | undefined>;
+    const from = query.from;
+    const to = query.to;
+    if (!from || !to) {
+      throw new AppError(400, '`from` and `to` query params are required');
+    }
+    return scheduleService.getSlotsInRange(from, to);
   });
 
   // POST /api/schedule/generate

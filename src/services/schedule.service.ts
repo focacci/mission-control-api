@@ -1,4 +1,4 @@
-import { eq, and, inArray, asc } from 'drizzle-orm';
+import { eq, and, inArray, asc, gte, lte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import { goals, tasks, weekPlans, scheduleSlots, weekGoalAllocations } from '../db/schema.js';
@@ -88,6 +88,21 @@ export async function getTodaySlots() {
     .orderBy(asc(scheduleSlots.datetime));
 
   return enrichSlotsWithTasks(slots);
+}
+
+export async function getSlotsInRange(from: string, to: string) {
+  if (from > to) {
+    throw new AppError(400, '`from` must be on or before `to`');
+  }
+
+  const slots = await db
+    .select()
+    .from(scheduleSlots)
+    .where(and(gte(scheduleSlots.date, from), lte(scheduleSlots.date, to)))
+    .orderBy(asc(scheduleSlots.datetime));
+
+  const enrichedSlots = await enrichSlotsWithTasks(slots);
+  return { from, to, slots: enrichedSlots };
 }
 
 export async function getWeekSlots(weekStart: string) {
