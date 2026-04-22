@@ -150,16 +150,18 @@ Each task can have:
 - **Tests** — acceptance criteria / verification steps
 - **Outputs** — artifacts produced (files, URLs, wikilinks)
 
-### Agent control layer (Phase 1)
+### Agent control layer (Phases 1–2)
 
-Every chat turn is now persisted. The DB is the source of truth for conversations, not OpenClaw's session cache.
+Every chat turn is persisted. The DB is the source of truth for conversations, not OpenClaw's session cache.
 
 - `chat_sessions` groups messages by `(agentId, contextType, contextId)`.
 - `chat_messages` stores each user/assistant turn in `sortOrder`.
 - `agent_invocations` tracks the lifecycle of every agent run (chat, scheduled slot-start, brief generation).
-- `tool_call_log` captures every MCP tool the model calls — populated starting in Phase 2.
+- `tool_call_log` captures every MCP tool the model calls, with a one-line `summary` for the collapsed-row UI.
 
-See [CONTROL_LAYER_PLAN.md](CONTROL_LAYER_PLAN.md) for the full phased plan.
+**Phase 2 — in-process agent loop (shipped).** The `openclaw agent` subprocess has been replaced by an in-process Anthropic SDK loop ([src/agent/](src/agent/)). Chat turns run through `handleChatTurn → runner.run`, which streams `text_delta` / `tool_use` / `tool_result` / `message_complete` / `done` events. `POST /api/chat/stream` exposes those events over Server-Sent Events; `POST /api/chat` buffers them into a single reply for legacy clients. `POST /api/invocations/:id/cancel` aborts a running turn; `GET /api/chat/sessions/:id/activity` returns the interleaved message + tool-call timeline for history replay.
+
+See [CONTROL_LAYER_PLAN.md](CONTROL_LAYER_PLAN.md), [CONTROL_LAYER_PHASE_2_UI.md](CONTROL_LAYER_PHASE_2_UI.md), and [PHASE_2_API_PLAN.md](PHASE_2_API_PLAN.md) for full design context.
 
 Goals have a **focus level** that controls weekly schedule allocation:
 
@@ -182,9 +184,9 @@ Goals have a **focus level** that controls weekly schedule allocation:
 | Schedule | `/api/schedule` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Board | `/api/board` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Agents | `/api/agents` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
-| Chat | `/api/chat` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
-| Conversations | `/api/chat/sessions` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
-| Invocations | `/api/invocations` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Chat | `/api/chat`, `/api/chat/stream` (SSE) | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Conversations | `/api/chat/sessions` (+ `/activity`) | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Invocations | `/api/invocations` (+ `/:id/cancel`) | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 
 ### Quick examples
 
