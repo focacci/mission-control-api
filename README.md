@@ -122,13 +122,19 @@ src/
 │   ├── schema.ts             # All Drizzle table definitions
 │   └── seed.ts               # One-time Obsidian vault importer
 ├── routes/
-│   ├── goals.routes.ts       # /api/goals/*
-│   ├── initiatives.routes.ts # /api/initiatives/*
-│   └── tasks.routes.ts       # /api/tasks/* (including requirements, tests, outputs)
+│   ├── goals.routes.ts              # /api/goals/*
+│   ├── initiatives.routes.ts        # /api/initiatives/*
+│   ├── tasks.routes.ts              # /api/tasks/* (core CRUD + requirement creation)
+│   ├── requirements.routes.ts       # /api/requirements/* (+ nested tests)
+│   ├── agentAssignments.routes.ts   # /api/tasks/:taskId/agent-assignments, /api/agent-assignments/:id
+│   └── schedule.routes.ts           # /api/schedule/* (+ slot outputs)
 ├── services/
-│   ├── goals.service.ts      # Goal CRUD + cascade delete
-│   ├── initiatives.service.ts # Initiative CRUD + complete action
-│   └── tasks.service.ts      # Task CRUD + lifecycle + sub-resources
+│   ├── goals.service.ts             # Goal CRUD + cascade delete
+│   ├── initiatives.service.ts       # Initiative CRUD + complete action
+│   ├── tasks.service.ts             # Task CRUD + lifecycle
+│   ├── requirements.service.ts      # Requirement CRUD + requirement tests
+│   ├── agentAssignments.service.ts  # Agent assignment CRUD + completion
+│   └── schedule.service.ts          # Week plan gen + slot lifecycle + slot outputs
 └── types/
     └── index.types.ts        # Zod schemas, inferred types, AppError, utility functions
 ```
@@ -146,9 +152,8 @@ Goals          — long-term areas of life/work (e.g. "🙏 Grow in Faith")
 ```
 
 Each task can have:
-- **Requirements** — checklist items that must all be checked before the task can be marked done
-- **Tests** — acceptance criteria / verification steps
-- **Outputs** — artifacts produced (files, URLs, wikilinks)
+- **Requirements** — checklist items that must all be checked before the task can be marked done. Each requirement owns its own **tests** (acceptance criteria / verification steps).
+- **Agent Assignments** — discrete chunks of work delegated to an agent. Scheduling operates on agent assignments (not tasks): a slot links to an `agentAssignmentId`, and the outputs produced during that slot live on the slot as **slot outputs** (files, URLs, wikilinks).
 
 ### Agent control layer (Phases 1–2)
 
@@ -211,7 +216,7 @@ curl -X POST http://localhost:3737/api/tasks \
 
 # Start → complete a task
 curl -X POST http://localhost:3737/api/tasks/<id>/start
-curl -X POST http://localhost:3737/api/tasks/<id>/requirements/<reqId>/check
+curl -X POST http://localhost:3737/api/requirements/<reqId>/check
 curl -X POST http://localhost:3737/api/tasks/<id>/done \
   -H 'Content-Type: application/json' \
   -d '{ "summary": "Alarm set for 6am, tested for 7 days." }'

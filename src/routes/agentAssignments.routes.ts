@@ -1,0 +1,48 @@
+import type { FastifyInstance } from 'fastify';
+import * as aaService from '../services/agentAssignments.service.js';
+import {
+  CreateAgentAssignmentSchema,
+  UpdateAgentAssignmentSchema,
+} from '../types/index.types.js';
+
+export async function agentAssignmentsRoutes(app: FastifyInstance) {
+  // GET /api/tasks/:taskId/agent-assignments
+  app.get('/api/tasks/:taskId/agent-assignments', async request => {
+    const { taskId } = request.params as { taskId: string };
+    return aaService.listAgentAssignmentsForTask(taskId);
+  });
+
+  // POST /api/tasks/:taskId/agent-assignments
+  app.post('/api/tasks/:taskId/agent-assignments', async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const parsed = CreateAgentAssignmentSchema.parse(request.body);
+    const aa = await aaService.createAgentAssignment(taskId, parsed);
+    return reply.status(201).send(aa);
+  });
+
+  // GET /api/agent-assignments/:id
+  app.get('/api/agent-assignments/:id', async request => {
+    const { id } = request.params as { id: string };
+    return aaService.getAgentAssignment(id);
+  });
+
+  // PATCH /api/agent-assignments/:id
+  app.patch('/api/agent-assignments/:id', async request => {
+    const { id } = request.params as { id: string };
+    const parsed = UpdateAgentAssignmentSchema.parse(request.body);
+    return aaService.updateAgentAssignment(id, parsed);
+  });
+
+  // POST /api/agent-assignments/:id/complete
+  app.post('/api/agent-assignments/:id/complete', async request => {
+    const { id } = request.params as { id: string };
+    return aaService.completeAgentAssignment(id);
+  });
+
+  // DELETE /api/agent-assignments/:id
+  app.delete('/api/agent-assignments/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await aaService.deleteAgentAssignment(id);
+    return reply.status(204).send();
+  });
+}

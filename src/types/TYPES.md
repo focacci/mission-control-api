@@ -17,9 +17,10 @@
   - [Initiative Schemas](#initiative-schemas)
   - [Task Schemas](#task-schemas)
   - [Requirement Schemas](#requirement-schemas)
-  - [Test Schemas](#test-schemas)
-  - [Output Schema](#output-schema)
+  - [Requirement Test Schemas](#requirement-test-schemas)
+  - [Agent Assignment Schemas](#agent-assignment-schemas)
   - [Schedule Schemas](#schedule-schemas)
+  - [Slot Output Schema](#slot-output-schema)
   - [Agent Schemas](#agent-schemas)
   - [Chat Schemas](#chat-schemas)
   - [Conversation Schemas](#conversation-schemas)
@@ -188,7 +189,6 @@ All schemas are used directly in route handlers via `.parse(request.body)`.
   initiativeId?: string,
   objective: string (min 1),
   requirements?: string[],     // default: []
-  tests?: string[],            // default: []
 }
 ```
 
@@ -198,7 +198,7 @@ All schemas are used directly in route handlers via `.parse(request.body)`.
 {
   name?: string,
   objective?: string,
-  status?: 'pending' | 'assigned' | 'in-progress' | 'done' | 'blocked' | 'cancelled',
+  status?: 'pending' | 'in-progress' | 'done' | 'blocked' | 'cancelled',
   sortOrder?: number (integer),
 }
 ```
@@ -210,7 +210,6 @@ Used by `POST /api/tasks/:id/done`.
 ```ts
 {
   summary: string (min 1),
-  outputs?: Array<{ label: string, url?: string }> | null,  // default: []
 }
 ```
 
@@ -242,15 +241,15 @@ Used by `POST /api/tasks/:id/block`.
 
 ---
 
-### Test Schemas
+### Requirement Test Schemas
 
-#### `AddTestSchema`
+#### `AddRequirementTestSchema`
 
 ```ts
 { description: string (min 1) }
 ```
 
-#### `UpdateTestSchema`
+#### `UpdateRequirementTestSchema`
 
 ```ts
 { description?: string, passed?: boolean }
@@ -258,13 +257,32 @@ Used by `POST /api/tasks/:id/block`.
 
 ---
 
-### Output Schema
+### Agent Assignment Schemas
 
-#### `AddOutputSchema`
+#### `CreateAgentAssignmentSchema`
 
 ```ts
-{ label: string (min 1), url?: string }
+{
+  name: string (min 1),
+  agentId?: string,
+  instructions?: string,
+}
 ```
+
+Input for `POST /api/tasks/:taskId/agent-assignments`.
+
+#### `UpdateAgentAssignmentSchema`
+
+```ts
+{
+  name?: string,
+  agentId?: string | null,
+  instructions?: string | null,
+  sortOrder?: number (integer),
+}
+```
+
+Input for `PATCH /api/agent-assignments/:id`. Passing `null` for `agentId` or `instructions` clears the field.
 
 ---
 
@@ -281,7 +299,7 @@ Used by `POST /api/tasks/:id/block`.
 ```ts
 {
   status?: 'pending' | 'in-progress' | 'done' | 'skipped',
-  taskId?: string | null,
+  agentAssignmentId?: string | null,
   note?: string | null,
 }
 ```
@@ -298,11 +316,25 @@ Used by `POST /api/tasks/:id/block`.
 { reason?: string }
 ```
 
-#### `AssignTaskSchema`
+#### `AssignAgentAssignmentSchema`
 
 ```ts
-{ taskId: string (min 1), slotId: string (min 1) }
+{ agentAssignmentId: string (min 1), slotId: string (min 1) }
 ```
+
+---
+
+### Slot Output Schema
+
+#### `AddSlotOutputSchema`
+
+```ts
+{ label: string (min 1), url?: string }
+```
+
+Used by `POST /api/schedule/slots/:id/outputs`.
+
+---
 
 ### Agent Schemas
 
@@ -458,7 +490,12 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `UpdateSlotInput` | `UpdateSlotSchema` |
 | `DoneSlotInput` | `DoneSlotSchema` |
 | `SkipSlotInput` | `SkipSlotSchema` |
-| `AssignTaskInput` | `AssignTaskSchema` |
+| `AssignAgentAssignmentInput` | `AssignAgentAssignmentSchema` |
+| `AddSlotOutputInput` | `AddSlotOutputSchema` |
+| `AddRequirementTestInput` | `AddRequirementTestSchema` |
+| `UpdateRequirementTestInput` | `UpdateRequirementTestSchema` |
+| `CreateAgentAssignmentInput` | `CreateAgentAssignmentSchema` |
+| `UpdateAgentAssignmentInput` | `UpdateAgentAssignmentSchema` |
 | `CreateAgentInput` | `CreateAgentSchema` |
 | `UpdateAgentInput` | `UpdateAgentSchema` |
 | `ChatContextInput` | `ChatContextSchema` |

@@ -7,7 +7,7 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { db } from './client.js';
-import { goals, initiatives, tasks, taskRequirements, taskTests } from './schema.js';
+import { goals, initiatives, tasks, taskRequirements, requirementTests } from './schema.js';
 
 config();
 
@@ -260,9 +260,9 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
     const content = readFileSync(join(dir, file), 'utf8');
     const { meta, body } = parseFrontmatter(content);
 
-    const emoji = meta['emoji'] ?? '📋';
     const rawStatus = meta['status'] ?? (done ? 'done' : 'pending');
-    const status = rawStatus as 'pending' | 'assigned' | 'in-progress' | 'done' | 'blocked' | 'cancelled';
+    const status = (rawStatus === 'assigned' ? 'pending' : rawStatus) as
+      'pending' | 'in-progress' | 'done' | 'blocked' | 'cancelled';
 
     const initWikilink = meta['initiative'] ?? '';
     const initDisplayName = extractWikilink(initWikilink);
@@ -282,14 +282,12 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
     try {
       await db.insert(tasks).values({
         id,
-        emoji,
         name,
         displayName,
         initiativeId,
         status,
         objective,
         summary,
-        slotId: null,
         sortOrder: 0,
         createdAt: meta['created'] ?? today(),
         updatedAt: now(),
@@ -311,20 +309,10 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
         }
       }
 
-      // Import tests
-      const testSection = extractSection(body, 'Test Plan');
-      if (testSection) {
-        const tests = parseCheckboxes(testSection);
-        for (let i = 0; i < tests.length; i++) {
-          await db.insert(taskTests).values({
-            id: nanoid(),
-            taskId: id,
-            description: tests[i].description,
-            passed: tests[i].completed,
-            sortOrder: i,
-          });
-        }
-      }
+      // Note: task-level Test Plan sections are no longer imported —
+      // tests live under requirements now and should be added per-requirement
+      // via the requirements API.
+      void requirementTests;
 
       console.log(`  ✓ Task: ${displayName}`);
       count++;

@@ -33,7 +33,7 @@ Every documentation file must have a `## Contents` table of contents immediately
 
 **Mission Control API** — personal productivity REST API (Fastify + TypeScript + Drizzle ORM + SQLite).
 
-Hierarchy: **Goals → Initiatives → Tasks** (with Requirements, Tests, and Outputs as task sub-resources).
+Hierarchy: **Goals → Initiatives → Tasks** (tasks own **Requirements** — each requirement owns its **Tests**; tasks also own **Agent Assignments**, which are what gets scheduled into slots and produce **Slot Outputs**).
 
 Key files:
 - `src/index.ts` — Fastify bootstrap, error handler, route registration

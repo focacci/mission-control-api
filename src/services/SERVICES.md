@@ -25,9 +25,23 @@
   - [`blockTask`](#blocktaskid-input)
   - [`cancelTask`](#canceltaskid)
   - [`deleteTask`](#deletetaskid)
-  - [Requirements](#requirements)
-  - [Tests](#tests)
-  - [Outputs](#outputs)
+- [Requirements Service](#requirements-service)
+  - [`addRequirement`](#addrequirementtaskid-description)
+  - [`updateRequirement`](#updaterequirementreqid-patch)
+  - [`checkRequirement`](#checkrequirementreqid-completed)
+  - [`deleteRequirement`](#deleterequirementreqid)
+  - [`addRequirementTest`](#addrequirementtestreqid-description)
+  - [`updateRequirementTest`](#updaterequirementtestreqid-testid-patch)
+  - [`passRequirementTest`](#passrequirementtestreqid-testid)
+  - [`unpassRequirementTest`](#unpassrequirementtestreqid-testid)
+  - [`deleteRequirementTest`](#deleterequirementtestreqid-testid)
+- [Agent Assignments Service](#agent-assignments-service)
+  - [`listAgentAssignmentsForTask`](#listagentassignmentsfortasktaskid)
+  - [`getAgentAssignment`](#getagentassignmentid)
+  - [`createAgentAssignment`](#createagentassignmenttaskid-input)
+  - [`updateAgentAssignment`](#updateagentassignmentid-input)
+  - [`completeAgentAssignment`](#completeagentassignmentid)
+  - [`deleteAgentAssignment`](#deleteagentassignmentid)
 - [Schedule Service](#schedule-service)
   - [`getTodaySlots`](#gettodayslots)
   - [`getWeekSlots`](#getweekslotsweestart)
@@ -35,8 +49,10 @@
   - [`updateSlot`](#updateslotid-input)
   - [`doneSlot`](#doneslotid-input)
   - [`skipSlot`](#skipslotid-input)
-  - [`assignTask`](#assigntasktaskid-slotid)
-  - [`unassignTask`](#unassigntaskslotid)
+  - [`assignAgentAssignment`](#assignagentassignmentaaid-slotid)
+  - [`unassignAgentAssignment`](#unassignagentassignmentslotid)
+  - [`addSlotOutput`](#addslotoutputslotid-input)
+  - [`deleteSlotOutput`](#deleteslotoutputslotid-outputid)
 - [Board Service](#board-service)
   - [`getBoard`](#getboard)
 - [Agents Service](#agents-service)
@@ -168,7 +184,7 @@ Merges partial input. `displayName` is recomputed whenever `emoji` or `name` cha
 completeInitiative(id: string): Promise<Initiative>
 ```
 
-Sets the initiative's `status` to `completed` and bulk-cancels all tasks still in `pending`, `assigned`, `in-progress`, or `blocked`. Both updates share the same timestamp.
+Sets the initiative's `status` to `completed` and bulk-cancels all tasks still in `pending`, `in-progress`, or `blocked`. Both updates share the same timestamp.
 
 ### `deleteInitiative(id)`
 
@@ -182,7 +198,7 @@ Hard-delete in a synchronous transaction: deletes all tasks under the initiative
 
 ## Tasks Service
 
-Manages tasks and their three sub-collections (requirements, tests, outputs).
+Manages pure task records. Tests live under requirements (see [Requirements Service](#requirements-service)); agent-delegated work and outputs live on agent assignments and slots respectively.
 
 ### `listTasks(opts)`
 
@@ -190,10 +206,10 @@ Manages tasks and their three sub-collections (requirements, tests, outputs).
 listTasks(opts: {
   initiativeId?: string;
   status?: string | string[];
-}): Promise<TaskWithRequirementsAndTests[]>
+}): Promise<Task[]>
 ```
 
-Returns tasks with their `requirements` and `tests` arrays. Supports filtering by `initiativeId` and one or more `status` values. Requirements and tests are loaded in a single bulk query per collection (not N+1). Sorted by `sortOrder`.
+Returns tasks filtered by `initiativeId` and/or one or more `status` values, sorted by `sortOrder`.
 
 ### `getTask(id)`
 
@@ -201,7 +217,7 @@ Returns tasks with their `requirements` and `tests` arrays. Supports filtering b
 getTask(id: string): Promise<TaskDetail>
 ```
 
-Returns full task detail: task row + `requirements`, `tests`, `outputs`, parent `initiative` (or `null`), and `slot: null` (schedule slot resolution not yet implemented). Throws `AppError(404)` if not found.
+Returns full task detail: task row + `requirements` (each with nested `tests`), `agentAssignments`, parent `initiative` (or `null`), and the grandparent `goal` (or `null`). Throws `AppError(404)` if not found.
 
 ### `createTask(input)`
 
@@ -209,8 +225,7 @@ Returns full task detail: task row + `requirements`, `tests`, `outputs`, parent 
 createTask(input: CreateTaskInput): Promise<TaskDetail>
 ```
 
-- Inserts the task, requirements, and tests in a single synchronous transaction.
-- Returns full task detail via `loadTaskDetail`.
+Inserts the task and any starter requirements in a single synchronous transaction. Returns full task detail via `loadTaskDetail`.
 
 ### `updateTask(id, input)`
 
@@ -236,7 +251,6 @@ doneTask(id: string, input: DoneTaskInput): Promise<TaskDetail>
 
 - Validates that all requirements are checked. Returns `AppError(400)` with `details.incomplete` if any are unchecked.
 - Sets `status = done`, records `summary` and `completedAt`.
-- Inserts any `outputs` provided in the same transaction.
 - Throws `AppError(409)` if the task is `cancelled`.
 
 ### `blockTask(id, input)`
@@ -261,55 +275,103 @@ Sets `status = cancelled`. Throws `AppError(409)` if the task is already `done`.
 deleteTask(id: string): Promise<void>
 ```
 
-Hard-deletes the task row. Child requirements, tests, and outputs are removed by `ON DELETE CASCADE` at the DB level. Throws `AppError(404)` if not found.
+Hard-deletes the task row. Requirements, requirement tests, and agent assignments are removed by `ON DELETE CASCADE` at the DB level. Throws `AppError(404)` if not found.
 
 ---
 
-### Requirements
+## Requirements Service
 
-#### `addRequirement(taskId, description)`
+Manages `task_requirements` and their nested `requirement_tests`. Requirement IDs are global — operations are addressed by `reqId` directly (no task-scoping).
 
-Appends a new unchecked requirement. `sortOrder` is set to the current count of existing requirements.
+### `addRequirement(taskId, description)`
 
-#### `updateRequirement(taskId, reqId, patch)`
+Appends a new unchecked requirement to the given task. `sortOrder` is set to the current count of existing requirements. Throws `AppError(404)` if the task doesn't exist.
 
-Updates `description` and/or `completed`. Throws `AppError(400)` if the patch is empty.
+### `updateRequirement(reqId, patch)`
 
-#### `checkRequirement(taskId, reqId, completed)`
+Updates `description` and/or `completed`. Throws `AppError(400)` if the patch is empty; `AppError(404)` if the requirement doesn't exist.
 
-Convenience wrapper around `updateRequirement` that sets only the `completed` boolean.
+### `checkRequirement(reqId, completed)`
 
-#### `deleteRequirement(taskId, reqId)`
+Convenience wrapper that sets only the `completed` boolean.
 
-Removes the requirement. Validates both `taskId` and `reqId` match.
+### `deleteRequirement(reqId)`
+
+Removes the requirement. Child `requirement_tests` cascade at the DB level.
+
+### `addRequirementTest(reqId, description)`
+
+Appends a new unpassed test under the given requirement. `sortOrder` is set to the current count.
+
+### `updateRequirementTest(reqId, testId, patch)`
+
+Updates `description` and/or `passed`. Validates both ids match.
+
+### `passRequirementTest(reqId, testId)`
+
+Convenience: sets `passed = true`.
+
+### `unpassRequirementTest(reqId, testId)`
+
+Convenience: sets `passed = false`.
+
+### `deleteRequirementTest(reqId, testId)`
+
+Removes the test. Validates both ids match.
 
 ---
 
-### Tests
+## Agent Assignments Service
 
-#### `addTest(taskId, description)`
+Manages `agent_assignments` — discrete chunks of task work delegated to an agent. Scheduling operates on agent assignments, not tasks.
 
-Appends a new unpassed test. `sortOrder` is set to the current count of existing tests.
+### `listAgentAssignmentsForTask(taskId)`
 
-#### `updateTest(taskId, testId, patch)`
+```ts
+listAgentAssignmentsForTask(taskId: string): Promise<(AgentAssignment & { slots: ScheduleSlot[] })[]>
+```
 
-Updates `description` and/or `passed`. Throws `AppError(400)` if the patch is empty.
+Returns all assignments under a task, sorted by `sortOrder`. Each assignment is enriched with the schedule slots currently referencing it (bulk-loaded via `inArray(scheduleSlots.agentAssignmentId, ids)` — no N+1).
 
-#### `deleteTest(taskId, testId)`
+### `getAgentAssignment(id)`
 
-Removes the test. Validates both `taskId` and `testId` match.
+```ts
+getAgentAssignment(id: string): Promise<AgentAssignment & { slots: ScheduleSlot[] }>
+```
 
----
+Single-row variant of the above. Throws `AppError(404)` if not found.
 
-### Outputs
+### `createAgentAssignment(taskId, input)`
 
-#### `addOutput(taskId, label, url?)`
+```ts
+createAgentAssignment(taskId: string, input: CreateAgentAssignmentInput): Promise<AgentAssignment>
+```
 
-Appends a new output artifact. `url` is optional.
+Inserts a new assignment with `completed: false`, `sortOrder = current count`, and optional `agentId` / `instructions`. Throws `AppError(404)` if the task doesn't exist.
 
-#### `deleteOutput(taskId, outputId)`
+### `updateAgentAssignment(id, input)`
 
-Removes the output. Validates both `taskId` and `outputId` match.
+```ts
+updateAgentAssignment(id: string, input: UpdateAgentAssignmentInput): Promise<AgentAssignment>
+```
+
+Updates `name`, `agentId`, `instructions`, and/or `sortOrder`. Passing `agentId: null` or `instructions: null` clears those fields.
+
+### `completeAgentAssignment(id)`
+
+```ts
+completeAgentAssignment(id: string): Promise<AgentAssignment>
+```
+
+Sets `completed = true` and stamps `completedAt = now()`. Idempotent.
+
+### `deleteAgentAssignment(id)`
+
+```ts
+deleteAgentAssignment(id: string): Promise<void>
+```
+
+Hard-deletes the assignment in a transaction: any schedule slots referencing it are first reset to `type = 'flex'`, `agentAssignmentId = null`, `status = 'pending'`, then the row is removed.
 
 ---
 
@@ -320,26 +382,26 @@ Manages week plan generation, slot queries, and slot lifecycle.
 ### `getTodaySlots()`
 
 ```ts
-getTodaySlots(): Promise<SlotWithTask[]>
+getTodaySlots(): Promise<SlotWithAssignment[]>
 ```
 
-Returns all slots for today's date (derived at call time). Enriches each slot with its linked task row. Returns empty array if no week plan exists for the current week.
+Returns all slots for today's date (derived at call time). Enriches each slot with the linked `agentAssignment` (+ parent `task`, `initiative`, `goal`) and its `outputs`. Returns empty array if no week plan exists for the current week.
 
 ### `getWeekSlots(weekStart)`
 
 ```ts
-getWeekSlots(weekStart: string): Promise<{ weekPlan, slots: SlotWithTask[], allocations }>
+getWeekSlots(weekStart: string): Promise<{ weekPlan, slots: SlotWithAssignment[], allocations }>
 ```
 
-Returns the full week plan, all slots with task enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. If no plan exists, returns `{ weekPlan: null, slots: [], allocations: [] }` — no generation is triggered.
+Returns the full week plan, all slots with agent-assignment + output enrichment, and per-goal allocations. Normalizes `weekStart` to the Sunday of that date. If no plan exists, returns `{ weekPlan: null, slots: [], allocations: [] }` — no generation is triggered.
 
 ### `getSlotsInRange(from, to)`
 
 ```ts
-getSlotsInRange(from: string, to: string): Promise<{ from, to, slots: SlotWithTask[] }>
+getSlotsInRange(from: string, to: string): Promise<{ from, to, slots: SlotWithAssignment[] }>
 ```
 
-Returns all slots whose `date` is within the inclusive `[from, to]` range, ordered by `datetime`, with task enrichment applied. Throws `AppError(400)` if `from > to`. Unlike `getWeekSlots`, this query is not keyed to a `weekPlans` row — it spans plan boundaries, so it's safe to call for arbitrary ranges (e.g., month grid, year overview).
+Returns all slots whose `date` is within the inclusive `[from, to]` range, ordered by `datetime`, with agent-assignment enrichment applied. Throws `AppError(400)` if `from > to`. Unlike `getWeekSlots`, this query is not keyed to a `weekPlans` row — it spans plan boundaries, so it's safe to call for arbitrary ranges (e.g., month grid, year overview).
 
 ### `generateWeekPlan(weekStart?)`
 
@@ -353,10 +415,9 @@ Creates a complete week plan:
 3. Queries all non-dormant goals.
 4. Computes per-goal slot allocations (sprint 30 / steady 12 / simmer 4, split evenly within each focus level).
 5. Generates 105 slots (15 times × 7 days). Fixed types: `00:00` → `maintenance`, Sunday `02:00` → `planning`, `07:00`/`12:30`/`19:00` → `brief`. All others → `flex`. `fixedSlots = 29` (7 maintenance + 1 planning + 21 briefs).
-6. Distributes task-eligible flex slots to goals in allocation order, upgrading them to type `task`.
-7. Pulls pending/assigned tasks for each goal and assigns them to that goal's task slots.
-8. Marks assigned tasks as `status = 'assigned'`.
-9. Persists `weekPlan`, `scheduleSlots`, `weekGoalAllocations`, and task updates in one transaction.
+6. Distributes agent-assignment-eligible flex slots to goals in allocation order, upgrading them to type `agent_assignment`.
+7. Looks up open agent assignments under each goal (via task → initiative → goal), and links each to one of that goal's assignment slots via `agentAssignmentId`.
+8. Persists `weekPlan`, `scheduleSlots`, and `weekGoalAllocations` in one transaction. Tasks are not mutated — scheduling flows exclusively through agent assignments now.
 
 ### `updateSlot(id, input)`
 
@@ -364,7 +425,7 @@ Creates a complete week plan:
 updateSlot(id: string, input: UpdateSlotInput): Promise<ScheduleSlot>
 ```
 
-Generic patch: updates `status`, `taskId`, and/or `note`. Throws `AppError(404)` if slot not found.
+Generic patch: updates `status`, `agentAssignmentId`, and/or `note`. Throws `AppError(404)` if slot not found.
 
 ### `doneSlot(id, input)`
 
@@ -382,21 +443,37 @@ skipSlot(id: string, input: SkipSlotInput): Promise<ScheduleSlot>
 
 Sets `status = 'skipped'` and stores the reason as `note`. Throws `AppError(404)` if not found.
 
-### `assignTask(taskId, slotId)`
+### `assignAgentAssignment(aaId, slotId)`
 
 ```ts
-assignTask(taskId: string, slotId: string): Promise<ScheduleSlot>
+assignAgentAssignment(aaId: string, slotId: string): Promise<ScheduleSlot>
 ```
 
-Atomically links a task to a slot: sets `slot.taskId`, `slot.type = 'task'`, `slot.status = 'pending'`; sets `task.slotId` and `task.status = 'assigned'`. Throws `AppError(400)` if the task is `done` or `cancelled`.
+Atomically links an agent assignment to a slot: sets `slot.agentAssignmentId`, `slot.type = 'agent_assignment'`, `slot.status = 'pending'`. Tasks are not modified. Throws `AppError(400)` if the assignment is already completed.
 
-### `unassignTask(slotId)`
+### `unassignAgentAssignment(slotId)`
 
 ```ts
-unassignTask(slotId: string): Promise<ScheduleSlot>
+unassignAgentAssignment(slotId: string): Promise<ScheduleSlot>
 ```
 
-Atomically removes a task from a slot: clears `slot.taskId`, resets `slot.status = 'pending'` (type and goalId are preserved); clears `task.slotId` and resets `task.status = 'pending'`. Throws `AppError(400)` if the slot has no assigned task.
+Atomically removes the agent assignment from a slot: clears `slot.agentAssignmentId`, resets `slot.type = 'flex'`, `slot.status = 'pending'` (goalId is preserved). Throws `AppError(400)` if the slot has no assigned agent assignment.
+
+### `addSlotOutput(slotId, input)`
+
+```ts
+addSlotOutput(slotId: string, input: AddSlotOutputInput): Promise<SlotOutput>
+```
+
+Inserts an output artifact (`{ label, url? }`) linked to the slot. Throws `AppError(404)` if the slot doesn't exist.
+
+### `deleteSlotOutput(slotId, outputId)`
+
+```ts
+deleteSlotOutput(slotId: string, outputId: string): Promise<void>
+```
+
+Removes the output. Validates both ids match.
 
 ---
 
@@ -410,7 +487,7 @@ getBoard(): Promise<{ goals: GoalWithHierarchy[], stats, weekSummary | null }>
 
 Returns the full board state:
 - All goals sorted by focus order, each with nested initiatives and their tasks.
-- `stats`: aggregate task counts (`total`, `pending`, `assigned`, `inProgress`, `done`, `blocked`, `cancelled`). Cancelled tasks are excluded from `total`.
+- `stats`: aggregate task counts (`total`, `pending`, `inProgress`, `done`, `blocked`, `cancelled`). Cancelled tasks are excluded from `total`.
 - `weekSummary`: current week plan with slot counts, or `null` if no plan for this week.
 
 ---

@@ -99,23 +99,17 @@ export const CreateTaskSchema = z.object({
   initiativeId: z.string().optional(),
   objective: z.string().min(1),
   requirements: z.array(z.string().min(1)).optional().default([]),
-  tests: z.array(z.string().min(1)).optional().default([]),
 });
 
 export const UpdateTaskSchema = z.object({
   name: z.string().min(1).optional(),
   objective: z.string().min(1).optional(),
-  status: z.enum(['pending', 'assigned', 'in-progress', 'done', 'blocked', 'cancelled']).optional(),
+  status: z.enum(['pending', 'in-progress', 'done', 'blocked', 'cancelled']).optional(),
   sortOrder: z.number().int().optional(),
 });
 
 export const DoneTaskSchema = z.object({
   summary: z.string().min(1),
-  outputs: z
-    .array(z.object({ label: z.string().min(1), url: z.string().optional() }))
-    .nullable()
-    .optional()
-    .default([]),
 });
 
 export const BlockTaskSchema = z.object({
@@ -132,20 +126,35 @@ export const UpdateRequirementSchema = z.object({
   completed: z.boolean().optional(),
 });
 
-// Tests
-export const AddTestSchema = z.object({
+// Requirement tests
+export const AddRequirementTestSchema = z.object({
   description: z.string().min(1),
 });
 
-export const UpdateTestSchema = z.object({
+export const UpdateRequirementTestSchema = z.object({
   description: z.string().min(1).optional(),
   passed: z.boolean().optional(),
 });
 
-// Outputs
-export const AddOutputSchema = z.object({
+// Agent Assignments
+export const CreateAgentAssignmentSchema = z.object({
+  title: z.string().min(1),
+  instructions: z.string().min(1),
+  agentId: z.string().nullable().optional(),
+});
+
+export const UpdateAgentAssignmentSchema = z.object({
+  title: z.string().min(1).optional(),
+  instructions: z.string().min(1).optional(),
+  agentId: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+// Slot Outputs
+export const AddSlotOutputSchema = z.object({
   label: z.string().min(1),
   url: z.string().optional(),
+  kind: z.enum(['created', 'updated', 'deleted']),
 });
 
 // Schedule
@@ -155,7 +164,7 @@ export const GenerateWeekPlanSchema = z.object({
 
 export const UpdateSlotSchema = z.object({
   status: z.enum(['pending', 'in-progress', 'done', 'skipped']).optional(),
-  taskId: z.string().nullable().optional(),
+  agentAssignmentId: z.string().nullable().optional(),
   note: z.string().nullable().optional(),
 });
 
@@ -167,8 +176,8 @@ export const SkipSlotSchema = z.object({
   reason: z.string().optional(),
 });
 
-export const AssignTaskSchema = z.object({
-  taskId: z.string().min(1),
+export const AssignAgentAssignmentSchema = z.object({
+  agentAssignmentId: z.string().min(1),
   slotId: z.string().min(1),
 });
 
@@ -247,7 +256,14 @@ export type GenerateWeekPlanInput = z.infer<typeof GenerateWeekPlanSchema>;
 export type UpdateSlotInput = z.infer<typeof UpdateSlotSchema>;
 export type DoneSlotInput = z.infer<typeof DoneSlotSchema>;
 export type SkipSlotInput = z.infer<typeof SkipSlotSchema>;
-export type AssignTaskInput = z.infer<typeof AssignTaskSchema>;
+export type AssignAgentAssignmentInput = z.infer<typeof AssignAgentAssignmentSchema>;
+export type AddRequirementInput = z.infer<typeof AddRequirementSchema>;
+export type UpdateRequirementInput = z.infer<typeof UpdateRequirementSchema>;
+export type AddRequirementTestInput = z.infer<typeof AddRequirementTestSchema>;
+export type UpdateRequirementTestInput = z.infer<typeof UpdateRequirementTestSchema>;
+export type CreateAgentAssignmentInput = z.infer<typeof CreateAgentAssignmentSchema>;
+export type UpdateAgentAssignmentInput = z.infer<typeof UpdateAgentAssignmentSchema>;
+export type AddSlotOutputInput = z.infer<typeof AddSlotOutputSchema>;
 export type CreateAgentInput = z.infer<typeof CreateAgentSchema>;
 export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;
 export type ChatContextInput = z.infer<typeof ChatContextSchema>;

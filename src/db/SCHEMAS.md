@@ -6,10 +6,11 @@
 - [`initiatives`](#initiatives)
 - [`tasks`](#tasks)
 - [`task_requirements`](#task_requirements)
-- [`task_tests`](#task_tests)
-- [`task_outputs`](#task_outputs)
+- [`requirement_tests`](#requirement_tests)
+- [`agent_assignments`](#agent_assignments)
 - [`week_plans`](#week_plans)
 - [`schedule_slots`](#schedule_slots)
+- [`slot_outputs`](#slot_outputs)
 - [`week_goal_allocations`](#week_goal_allocations)
 - [`agents`](#agents)
 - [`chat_sessions`](#chat_sessions)
@@ -75,10 +76,9 @@ A discrete unit of work belonging to an initiative.
 | `name` | `text` UNIQUE | |
 | `display_name` | `text` | derived |
 | `initiative_id` | `text` FK → `initiatives.id` | `ON DELETE SET NULL` |
-| `status` | `text` enum | `pending` \| `assigned` \| `in-progress` \| `done` \| `blocked` \| `cancelled` |
+| `status` | `text` enum | `pending` \| `in-progress` \| `done` \| `blocked` \| `cancelled` |
 | `objective` | `text` | what this task accomplishes (required) |
 | `summary` | `text` nullable | filled on completion (or used for block reason) |
-| `slot_id` | `text` FK → `schedule_slots.id` | `ON DELETE SET NULL` — which schedule slot this is assigned to |
 | `sort_order` | `integer` default 0 | |
 | `created_at` | `text` | ISO date |
 | `updated_at` | `text` | ISO timestamp |
@@ -102,31 +102,36 @@ Checklist items that must all be completed before a task can be marked done.
 
 ---
 
-## `task_tests`
+## `requirement_tests`
 
-Verification steps / acceptance criteria for a task.
+Verification steps attached to a specific requirement. When all tests under a requirement pass, the requirement can be checked off.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text` PK | nanoid |
-| `task_id` | `text` FK → `tasks.id` | `ON DELETE CASCADE` |
+| `requirement_id` | `text` FK → `task_requirements.id` | `ON DELETE CASCADE` |
 | `description` | `text` | test description |
 | `passed` | `integer` boolean | default `false` |
 | `sort_order` | `integer` | default 0 |
 
 ---
 
-## `task_outputs`
+## `agent_assignments`
 
-Artifacts produced by a task (files, URLs, Obsidian wikilinks, etc.).
+A chunk of task work delegated to an agent. Tasks are purely human-driven; agent assignments are the unit that gets scheduled into slots and produces outputs.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text` PK | nanoid |
 | `task_id` | `text` FK → `tasks.id` | `ON DELETE CASCADE` |
-| `label` | `text` | display name or link text |
-| `url` | `text` nullable | optional file path, URL, or wikilink |
+| `agent_id` | `text` FK → `agents.id` nullable | `ON DELETE SET NULL` |
+| `name` | `text` | short title for the assignment |
+| `instructions` | `text` nullable | markdown brief handed to the agent |
+| `completed` | `integer` boolean | default `false` |
+| `completed_at` | `text` nullable | ISO timestamp set when `completed → true` |
+| `sort_order` | `integer` default 0 | |
 | `created_at` | `text` | ISO timestamp |
+| `updated_at` | `text` | ISO timestamp |
 
 ---
 
@@ -159,12 +164,26 @@ Individual 2-hour time blocks within a week plan. 84 slots per week (12 slots/da
 | `date` | `text` | `YYYY-MM-DD` |
 | `time` | `text` | `HH:00` (00, 02, 04 … 22) |
 | `datetime` | `text` | `YYYY-MM-DDTHH:00` — used for sorting/querying |
-| `type` | `text` enum | `maintenance` \| `planning` \| `task` \| `brief` \| `flex` |
+| `type` | `text` enum | `maintenance` \| `planning` \| `agent_assignment` \| `brief` \| `flex` |
 | `status` | `text` enum | `pending` \| `in-progress` \| `done` \| `skipped` |
-| `task_id` | `text` nullable | task assigned to this slot (no FK constraint) |
+| `agent_assignment_id` | `text` nullable | agent assignment occupying this slot (no FK constraint — service-level cleanup) |
 | `goal_id` | `text` FK → `goals.id` | `ON DELETE SET NULL` — goal allocation for unassigned slots |
 | `note` | `text` nullable | completion note or skip reason |
 | `day_of_week` | `text` | `Monday`, `Tuesday`, etc. |
+
+---
+
+## `slot_outputs`
+
+Artifacts produced during a scheduled slot (files, URLs, wikilinks, notes). Outputs live on the slot, not the task — an agent assignment may produce outputs across multiple slots.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `slot_id` | `text` FK → `schedule_slots.id` | `ON DELETE CASCADE` |
+| `label` | `text` | display name or link text |
+| `url` | `text` nullable | optional file path, URL, or wikilink |
+| `created_at` | `text` | ISO timestamp |
 
 ---
 
@@ -284,11 +303,13 @@ goals
   └── initiatives (goal_id → goals.id, SET NULL)
         └── tasks (initiative_id → initiatives.id, SET NULL)
               ├── task_requirements (task_id → tasks.id, CASCADE)
-              ├── task_tests        (task_id → tasks.id, CASCADE)
-              └── task_outputs      (task_id → tasks.id, CASCADE)
+              │     └── requirement_tests (requirement_id → task_requirements.id, CASCADE)
+              └── agent_assignments (task_id → tasks.id, CASCADE; agent_id → agents.id, SET NULL)
 
 week_plans
   ├── schedule_slots       (week_plan_id → week_plans.id, CASCADE)
+  │     └── slot_outputs    (slot_id → schedule_slots.id, CASCADE)
+  │     (agent_assignment_id is a soft link — no FK)
   └── week_goal_allocations (week_plan_id → week_plans.id, CASCADE)
 
 chat_sessions
@@ -298,4 +319,4 @@ chat_sessions
 agent_invocations (soft link via session_id / trigger_ref_id — no FK)
 ```
 
-**Delete behavior:** deleting a goal hard-deletes its initiatives and their tasks in a transaction (service-level cascade). The FK `ON DELETE SET NULL` is a safety net for orphaned references; the service never relies on it alone.
+**Delete behavior:** deleting a goal hard-deletes its initiatives, tasks, requirements, requirement tests, and agent assignments in a transaction (service-level cascade). Schedule slots that referenced deleted agent assignments are cleared back to `flex` slots with `agent_assignment_id = null`. The FK `ON DELETE SET NULL` / `CASCADE` settings are safety nets; the services never rely on them alone.

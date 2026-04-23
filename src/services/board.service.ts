@@ -73,7 +73,6 @@ function computeStats(allTasks: (typeof tasks.$inferSelect)[]) {
   return {
     total: active.length,
     pending: active.filter(t => t.status === 'pending').length,
-    assigned: active.filter(t => t.status === 'assigned').length,
     inProgress: active.filter(t => t.status === 'in-progress').length,
     done: active.filter(t => t.status === 'done').length,
     blocked: active.filter(t => t.status === 'blocked').length,
@@ -105,12 +104,12 @@ async function getWeekSummary() {
     .from(weekGoalAllocations)
     .where(eq(weekGoalAllocations.weekPlanId, plan.id));
 
-  const taskSlots = slots.filter(s => s.type === 'task');
+  const assignmentSlots = slots.filter(s => s.type === 'agent_assignment');
 
   return {
     weekPlan: plan,
     totalSlots: slots.length,
-    taskSlots: taskSlots.length,
+    assignmentSlots: assignmentSlots.length,
     doneSlots: slots.filter(s => s.status === 'done').length,
     skippedSlots: slots.filter(s => s.status === 'skipped').length,
     pendingSlots: slots.filter(s => s.status === 'pending').length,

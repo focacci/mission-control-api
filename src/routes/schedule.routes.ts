@@ -5,7 +5,8 @@ import {
   UpdateSlotSchema,
   DoneSlotSchema,
   SkipSlotSchema,
-  AssignTaskSchema,
+  AssignAgentAssignmentSchema,
+  AddSlotOutputSchema,
   AppError,
   today,
 } from '../types/index.types.js';
@@ -69,13 +70,28 @@ export async function scheduleRoutes(app: FastifyInstance) {
 
   // POST /api/schedule/assign
   app.post('/api/schedule/assign', async request => {
-    const parsed = AssignTaskSchema.parse(request.body);
-    return scheduleService.assignTask(parsed.taskId, parsed.slotId);
+    const parsed = AssignAgentAssignmentSchema.parse(request.body);
+    return scheduleService.assignAgentAssignment(parsed.agentAssignmentId, parsed.slotId);
   });
 
-  // DELETE /api/schedule/slots/:id/task
-  app.delete('/api/schedule/slots/:id/task', async request => {
+  // DELETE /api/schedule/slots/:id/assignment
+  app.delete('/api/schedule/slots/:id/assignment', async request => {
     const { id } = request.params as { id: string };
-    return scheduleService.unassignTask(id);
+    return scheduleService.unassignAgentAssignment(id);
+  });
+
+  // POST /api/schedule/slots/:id/outputs
+  app.post('/api/schedule/slots/:id/outputs', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = AddSlotOutputSchema.parse(request.body);
+    const output = await scheduleService.addSlotOutput(id, parsed);
+    return reply.status(201).send(output);
+  });
+
+  // DELETE /api/schedule/slots/:slotId/outputs/:outputId
+  app.delete('/api/schedule/slots/:slotId/outputs/:outputId', async (request, reply) => {
+    const { slotId, outputId } = request.params as { slotId: string; outputId: string };
+    await scheduleService.deleteSlotOutput(slotId, outputId);
+    return reply.status(204).send();
   });
 }

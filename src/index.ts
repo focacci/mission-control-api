@@ -7,6 +7,8 @@ import { sql } from 'drizzle-orm';
 import { goalsRoutes } from './routes/goals.routes.js';
 import { initiativesRoutes } from './routes/initiatives.routes.js';
 import { tasksRoutes } from './routes/tasks.routes.js';
+import { requirementsRoutes } from './routes/requirements.routes.js';
+import { agentAssignmentsRoutes } from './routes/agentAssignments.routes.js';
 import { scheduleRoutes } from './routes/schedule.routes.js';
 import { boardRoutes } from './routes/board.routes.js';
 import { chatRoutes } from './routes/chat.routes.js';
@@ -58,6 +60,8 @@ app.get('/health', async () => {
 await app.register(goalsRoutes);
 await app.register(initiativesRoutes);
 await app.register(tasksRoutes);
+await app.register(requirementsRoutes);
+await app.register(agentAssignmentsRoutes);
 await app.register(scheduleRoutes);
 await app.register(boardRoutes);
 await app.register(chatRoutes);

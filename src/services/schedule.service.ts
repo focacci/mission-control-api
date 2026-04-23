@@ -1,7 +1,16 @@
 import { eq, and, inArray, asc, gte, lte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
-import { goals, tasks, weekPlans, scheduleSlots, weekGoalAllocations } from '../db/schema.js';
+import {
+  goals,
+  initiatives,
+  tasks,
+  agentAssignments,
+  weekPlans,
+  scheduleSlots,
+  slotOutputs,
+  weekGoalAllocations,
+} from '../db/schema.js';
 import {
   now,
   today,
@@ -10,6 +19,7 @@ import {
   type UpdateSlotInput,
   type DoneSlotInput,
   type SkipSlotInput,
+  type AddSlotOutputInput,
 } from '../types/index.types.js';
 
 // ---------------------------------------------------------------------------
@@ -87,7 +97,7 @@ export async function getTodaySlots() {
     .where(and(eq(scheduleSlots.weekPlanId, plan.id), eq(scheduleSlots.date, date)))
     .orderBy(asc(scheduleSlots.datetime));
 
-  return enrichSlotsWithTasks(slots);
+  return enrichSlotsWithAssignments(slots);
 }
 
 export async function getSlotsInRange(from: string, to: string) {
@@ -101,8 +111,8 @@ export async function getSlotsInRange(from: string, to: string) {
     .where(and(gte(scheduleSlots.date, from), lte(scheduleSlots.date, to)))
     .orderBy(asc(scheduleSlots.datetime));
 
-  const enrichedSlots = await enrichSlotsWithTasks(slots);
-  return { from, to, slots: enrichedSlots };
+  const enriched = await enrichSlotsWithAssignments(slots);
+  return { from, to, slots: enriched };
 }
 
 export async function getWeekSlots(weekStart: string) {
@@ -126,21 +136,45 @@ export async function getWeekSlots(weekStart: string) {
     .from(weekGoalAllocations)
     .where(eq(weekGoalAllocations.weekPlanId, plan.id));
 
-  const enrichedSlots = await enrichSlotsWithTasks(slots);
+  const enriched = await enrichSlotsWithAssignments(slots);
 
-  return { weekPlan: plan, slots: enrichedSlots, allocations };
+  return { weekPlan: plan, slots: enriched, allocations };
 }
 
-async function enrichSlotsWithTasks(
+async function enrichSlotsWithAssignments(
   slots: (typeof scheduleSlots.$inferSelect)[],
 ) {
-  const taskIds = slots.map(s => s.taskId).filter((id): id is string => id != null);
-  if (!taskIds.length) return slots.map(s => ({ ...s, task: null }));
+  if (!slots.length) return [];
 
-  const taskRows = await db.select().from(tasks).where(inArray(tasks.id, taskIds));
-  const taskMap = new Map(taskRows.map(t => [t.id, t]));
+  const aaIds = slots
+    .map(s => s.agentAssignmentId)
+    .filter((id): id is string => id != null);
 
-  return slots.map(s => ({ ...s, task: s.taskId ? (taskMap.get(s.taskId) ?? null) : null }));
+  const aaRows = aaIds.length
+    ? await db.select().from(agentAssignments).where(inArray(agentAssignments.id, aaIds))
+    : [];
+  const aaMap = new Map(aaRows.map(a => [a.id, a]));
+
+  const slotIds = slots.map(s => s.id);
+  const outputs = slotIds.length
+    ? await db
+        .select()
+        .from(slotOutputs)
+        .where(inArray(slotOutputs.slotId, slotIds))
+        .orderBy(asc(slotOutputs.createdAt))
+    : [];
+  const outputsBySlot = new Map<string, typeof outputs>();
+  for (const o of outputs) {
+    const arr = outputsBySlot.get(o.slotId) ?? [];
+    arr.push(o);
+    outputsBySlot.set(o.slotId, arr);
+  }
+
+  return slots.map(s => ({
+    ...s,
+    agentAssignment: s.agentAssignmentId ? aaMap.get(s.agentAssignmentId) ?? null : null,
+    outputs: outputsBySlot.get(s.id) ?? [],
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +201,6 @@ export async function generateWeekPlan(weekStart?: string) {
 
   const allocations = computeAllocations(activeGoals);
 
-  const totalAllocated = allocations.reduce((sum, a) => sum + a.targetSlots, 0);
   const sprintGoals = activeGoals.filter(g => g.focus === 'sprint');
   const steadyGoals = activeGoals.filter(g => g.focus === 'steady');
   const simmerGoals = activeGoals.filter(g => g.focus === 'simmer');
@@ -179,19 +212,24 @@ export async function generateWeekPlan(weekStart?: string) {
     weekEnd: normalizedEnd,
     generatedAt: now(),
     sprintSlots: sprintGoals.length
-      ? allocations.filter(a => sprintGoals.some(g => g.id === a.goalId)).reduce((s, a) => s + a.targetSlots, 0)
+      ? allocations
+          .filter(a => sprintGoals.some(g => g.id === a.goalId))
+          .reduce((s, a) => s + a.targetSlots, 0)
       : 0,
     steadySlots: steadyGoals.length
-      ? allocations.filter(a => steadyGoals.some(g => g.id === a.goalId)).reduce((s, a) => s + a.targetSlots, 0)
+      ? allocations
+          .filter(a => steadyGoals.some(g => g.id === a.goalId))
+          .reduce((s, a) => s + a.targetSlots, 0)
       : 0,
     simmerSlots: simmerGoals.length
-      ? allocations.filter(a => simmerGoals.some(g => g.id === a.goalId)).reduce((s, a) => s + a.targetSlots, 0)
+      ? allocations
+          .filter(a => simmerGoals.some(g => g.id === a.goalId))
+          .reduce((s, a) => s + a.targetSlots, 0)
       : 0,
-    fixedSlots: 29, // 7 maintenance + 1 planning + 21 briefs (3/day × 7 days)
-    flexSlots: 0, // filled below after slot generation
+    fixedSlots: 29,
+    flexSlots: 0,
   };
 
-  // Build all 84 slots
   type SlotRow = typeof scheduleSlots.$inferInsert;
   const slotRows: SlotRow[] = [];
 
@@ -209,7 +247,7 @@ export async function generateWeekPlan(weekStart?: string) {
         datetime: `${date}T${time}`,
         type,
         status: 'pending',
-        taskId: null,
+        agentAssignmentId: null,
         goalId: null,
         note: null,
         dayOfWeek: dayName,
@@ -217,7 +255,7 @@ export async function generateWeekPlan(weekStart?: string) {
     }
   }
 
-  // Distribute task-eligible flex slots to goals
+  // Allocate flex slots to goals, converting to agent_assignment type
   const flexSlots = slotRows.filter(s => s.type === 'flex');
 
   let slotCursor = 0;
@@ -225,55 +263,46 @@ export async function generateWeekPlan(weekStart?: string) {
     for (let i = 0; i < alloc.targetSlots && slotCursor < flexSlots.length; i++) {
       const slot = flexSlots[slotCursor++];
       slot.goalId = alloc.goalId;
-      slot.type = 'task';
+      slot.type = 'agent_assignment';
     }
   }
 
   const remainingFlex = flexSlots.filter(s => s.type === 'flex').length;
   plan.flexSlots = remainingFlex;
 
-  // Assign pending tasks to goal slots
+  // Auto-assign pending agent assignments to their goal's slots
   const goalIds = allocations.map(a => a.goalId);
   if (goalIds.length) {
-    const pendingTasks = await db
+    const pendingAAs = await db
       .select()
-      .from(tasks)
-      .where(and(
-        inArray(tasks.status, ['pending', 'assigned']),
-        // tasks must belong to an initiative under one of these goals — use goalId from slot
-        // simpler: we'll just assign by matching slotGoalId to task's goal via initiative
-        // for now, pull all pending tasks and let the slot assignment handle it
-      ))
-      .orderBy(asc(tasks.sortOrder));
+      .from(agentAssignments)
+      .where(eq(agentAssignments.completed, false))
+      .orderBy(asc(agentAssignments.sortOrder));
 
-    // Map each pending task to its goal via initiative lookup
-    const taskGoalMap = await buildTaskGoalMap(pendingTasks.map(t => t.id));
+    const aaGoalMap = await buildAssignmentGoalMap(pendingAAs.map(a => a.id));
 
     for (const alloc of allocations) {
-      const goalTaskSlots = slotRows
-        .filter(s => s.type === 'task' && s.goalId === alloc.goalId)
+      const goalAASlots = slotRows
+        .filter(s => s.type === 'agent_assignment' && s.goalId === alloc.goalId)
         .sort((a, b) => a.datetime!.localeCompare(b.datetime!));
 
-      const goalTasks = pendingTasks.filter(t => taskGoalMap.get(t.id) === alloc.goalId);
+      const goalAAs = pendingAAs.filter(a => aaGoalMap.get(a.id) === alloc.goalId);
 
-      for (let i = 0; i < Math.min(goalTasks.length, goalTaskSlots.length); i++) {
-        goalTaskSlots[i].taskId = goalTasks[i].id;
+      for (let i = 0; i < Math.min(goalAAs.length, goalAASlots.length); i++) {
+        goalAASlots[i].agentAssignmentId = goalAAs[i].id;
       }
     }
   }
 
-  // Persist everything in a transaction
   const allocationRows = allocations.map(a => ({
     id: nanoid(),
     weekPlanId: planId,
     goalId: a.goalId,
     targetSlots: a.targetSlots,
-    assignedSlots: slotRows.filter(s => s.goalId === a.goalId && s.taskId != null).length,
+    assignedSlots: slotRows.filter(
+      s => s.goalId === a.goalId && s.agentAssignmentId != null,
+    ).length,
   }));
-
-  const assignedTaskIds = slotRows
-    .filter(s => s.taskId != null)
-    .map(s => s.taskId as string);
 
   db.transaction(tx => {
     tx.insert(weekPlans).values(plan).run();
@@ -285,20 +314,22 @@ export async function generateWeekPlan(weekStart?: string) {
     if (allocationRows.length) {
       tx.insert(weekGoalAllocations).values(allocationRows).run();
     }
-
-    if (assignedTaskIds.length) {
-      tx.update(tasks)
-        .set({ status: 'assigned', updatedAt: now() })
-        .where(inArray(tasks.id, assignedTaskIds))
-        .run();
-    }
   });
 
   const [savedPlan] = await db.select().from(weekPlans).where(eq(weekPlans.id, planId));
-  const savedSlots = await db.select().from(scheduleSlots).where(eq(scheduleSlots.weekPlanId, planId)).orderBy(asc(scheduleSlots.datetime));
-  const savedAllocations = await db.select().from(weekGoalAllocations).where(eq(weekGoalAllocations.weekPlanId, planId));
+  const savedSlots = await db
+    .select()
+    .from(scheduleSlots)
+    .where(eq(scheduleSlots.weekPlanId, planId))
+    .orderBy(asc(scheduleSlots.datetime));
+  const savedAllocations = await db
+    .select()
+    .from(weekGoalAllocations)
+    .where(eq(weekGoalAllocations.weekPlanId, planId));
 
-  return { weekPlan: savedPlan, slots: savedSlots, allocations: savedAllocations };
+  const enriched = await enrichSlotsWithAssignments(savedSlots);
+
+  return { weekPlan: savedPlan, slots: enriched, allocations: savedAllocations };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,12 +343,13 @@ export async function updateSlot(id: string, input: UpdateSlotInput) {
   const updates: Partial<typeof existing> = {};
   if ('status' in input && input.status !== undefined) updates.status = input.status;
   if ('note' in input) updates.note = input.note ?? null;
-  if ('taskId' in input) updates.taskId = input.taskId ?? null;
+  if ('agentAssignmentId' in input) updates.agentAssignmentId = input.agentAssignmentId ?? null;
 
   await db.update(scheduleSlots).set(updates).where(eq(scheduleSlots.id, id));
 
   const [updated] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, id));
-  return updated;
+  const [enriched] = await enrichSlotsWithAssignments([updated]);
+  return enriched;
 }
 
 export async function doneSlot(id: string, input: DoneSlotInput) {
@@ -330,7 +362,8 @@ export async function doneSlot(id: string, input: DoneSlotInput) {
     .where(eq(scheduleSlots.id, id));
 
   const [updated] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, id));
-  return updated;
+  const [enriched] = await enrichSlotsWithAssignments([updated]);
+  return enriched;
 }
 
 export async function skipSlot(id: string, input: SkipSlotInput) {
@@ -343,72 +376,84 @@ export async function skipSlot(id: string, input: SkipSlotInput) {
     .where(eq(scheduleSlots.id, id));
 
   const [updated] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, id));
-  return updated;
+  const [enriched] = await enrichSlotsWithAssignments([updated]);
+  return enriched;
 }
 
-export async function unassignTask(slotId: string) {
+export async function unassignAgentAssignment(slotId: string) {
   const [slot] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
   if (!slot) throw notFound('ScheduleSlot', slotId);
-  if (!slot.taskId) throw new AppError(400, 'Slot has no assigned task');
-
-  const taskId = slot.taskId;
-
-  db.transaction(tx => {
-    tx.update(scheduleSlots)
-      .set({ taskId: null, status: 'pending' })
-      .where(eq(scheduleSlots.id, slotId))
-      .run();
-
-    tx.update(tasks)
-      .set({ slotId: null, status: 'pending', updatedAt: now() })
-      .where(eq(tasks.id, taskId))
-      .run();
-  });
-
-  const [updated] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
-  return updated;
-}
-
-export async function assignTask(taskId: string, slotId: string) {
-  const [slot] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
-  if (!slot) throw notFound('ScheduleSlot', slotId);
-
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
-  if (!task) throw notFound('Task', taskId);
-
-  if (['done', 'cancelled'].includes(task.status)) {
-    throw new AppError(400, `Cannot assign a ${task.status} task to a slot`);
+  if (!slot.agentAssignmentId) {
+    throw new AppError(400, 'Slot has no assigned agent assignment');
   }
 
-  db.transaction(tx => {
-    // If the slot already has a different task, release it
-    if (slot.taskId && slot.taskId !== taskId) {
-      tx.update(tasks)
-        .set({ slotId: null, status: 'pending', updatedAt: now() })
-        .where(eq(tasks.id, slot.taskId))
-        .run();
-    }
-    // If the task is already assigned to a different slot, release that slot
-    if (task.slotId && task.slotId !== slotId) {
-      tx.update(scheduleSlots)
-        .set({ taskId: null, status: 'pending' })
-        .where(eq(scheduleSlots.id, task.slotId))
-        .run();
-    }
-
-    tx.update(scheduleSlots)
-      .set({ taskId, type: 'task', status: 'pending', goalId: slot.goalId })
-      .where(eq(scheduleSlots.id, slotId))
-      .run();
-
-    tx.update(tasks)
-      .set({ slotId, status: 'assigned', updatedAt: now() })
-      .where(eq(tasks.id, taskId))
-      .run();
-  });
+  await db
+    .update(scheduleSlots)
+    .set({ agentAssignmentId: null, status: 'pending' })
+    .where(eq(scheduleSlots.id, slotId));
 
   const [updated] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
-  return updated;
+  const [enriched] = await enrichSlotsWithAssignments([updated]);
+  return enriched;
+}
+
+export async function assignAgentAssignment(agentAssignmentId: string, slotId: string) {
+  const [slot] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
+  if (!slot) throw notFound('ScheduleSlot', slotId);
+
+  const [aa] = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.id, agentAssignmentId));
+  if (!aa) throw notFound('AgentAssignment', agentAssignmentId);
+
+  if (aa.completed) {
+    throw new AppError(400, 'Cannot assign a completed agent assignment');
+  }
+
+  await db
+    .update(scheduleSlots)
+    .set({
+      agentAssignmentId,
+      type: 'agent_assignment',
+      status: 'pending',
+      goalId: slot.goalId,
+    })
+    .where(eq(scheduleSlots.id, slotId));
+
+  const [updated] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
+  const [enriched] = await enrichSlotsWithAssignments([updated]);
+  return enriched;
+}
+
+// ---------------------------------------------------------------------------
+// Slot outputs
+// ---------------------------------------------------------------------------
+
+export async function addSlotOutput(slotId: string, input: AddSlotOutputInput) {
+  const [slot] = await db.select().from(scheduleSlots).where(eq(scheduleSlots.id, slotId));
+  if (!slot) throw notFound('ScheduleSlot', slotId);
+
+  const output = {
+    id: nanoid(),
+    slotId,
+    label: input.label,
+    url: input.url ?? null,
+    kind: input.kind,
+    createdAt: now(),
+  };
+  await db.insert(slotOutputs).values(output);
+  return output;
+}
+
+export async function deleteSlotOutput(slotId: string, outputId: string) {
+  const [output] = await db
+    .select()
+    .from(slotOutputs)
+    .where(and(eq(slotOutputs.id, outputId), eq(slotOutputs.slotId, slotId)));
+  if (!output) throw notFound('SlotOutput', outputId);
+
+  await db.delete(slotOutputs).where(eq(slotOutputs.id, outputId));
 }
 
 // ---------------------------------------------------------------------------
@@ -437,11 +482,16 @@ function computeAllocations(activeGoals: (typeof goals.$inferSelect)[]) {
   return result;
 }
 
-async function buildTaskGoalMap(taskIds: string[]): Promise<Map<string, string>> {
-  if (!taskIds.length) return new Map();
+async function buildAssignmentGoalMap(aaIds: string[]): Promise<Map<string, string>> {
+  if (!aaIds.length) return new Map();
 
-  // tasks → initiatives → goals
-  const { initiatives } = await import('../db/schema.js');
+  const aaRows = await db
+    .select({ id: agentAssignments.id, taskId: agentAssignments.taskId })
+    .from(agentAssignments)
+    .where(inArray(agentAssignments.id, aaIds));
+
+  const taskIds = aaRows.map(a => a.taskId);
+  if (!taskIds.length) return new Map();
 
   const taskRows = await db
     .select({ id: tasks.id, initiativeId: tasks.initiativeId })
@@ -459,14 +509,18 @@ async function buildTaskGoalMap(taskIds: string[]): Promise<Map<string, string>>
     .from(initiatives)
     .where(inArray(initiatives.id, initiativeIds));
 
-  const initiativeGoalMap = new Map(initiativeRows.map(i => [i.id, i.goalId]));
-
-  const map = new Map<string, string>();
+  const initGoalMap = new Map(initiativeRows.map(i => [i.id, i.goalId]));
+  const taskGoalMap = new Map<string, string>();
   for (const t of taskRows) {
     if (!t.initiativeId) continue;
-    const goalId = initiativeGoalMap.get(t.initiativeId);
-    if (goalId) map.set(t.id, goalId);
+    const gid = initGoalMap.get(t.initiativeId);
+    if (gid) taskGoalMap.set(t.id, gid);
   }
 
+  const map = new Map<string, string>();
+  for (const a of aaRows) {
+    const gid = taskGoalMap.get(a.taskId);
+    if (gid) map.set(a.id, gid);
+  }
   return map;
 }

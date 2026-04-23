@@ -8,9 +8,10 @@
 - [Tasks](#tasks)
   - [Core CRUD](#core-crud)
   - [Lifecycle Actions](#lifecycle-actions)
-  - [Requirements Sub-Routes](#requirements-sub-routes)
-  - [Tests Sub-Routes](#tests-sub-routes)
-  - [Outputs Sub-Routes](#outputs-sub-routes)
+  - [Requirement Creation (under Task)](#requirement-creation-under-task)
+- [Requirements](#requirements)
+  - [Requirement Tests](#requirement-tests)
+- [Agent Assignments](#agent-assignments)
 - [Schedule](#schedule)
 - [Board](#board)
 - [Agents](#agents)
@@ -71,59 +72,80 @@ CRUD for initiatives (projects/campaigns under a goal).
 
 **Notes:**
 - `status` defaults to `active` on create.
-- `POST .../complete` sets `status = completed` and cancels any tasks still in `pending`, `assigned`, `in-progress`, or `blocked`.
+- `POST .../complete` sets `status = completed` and cancels any tasks still in `pending`, `in-progress`, or `blocked`.
 
 ---
 
 ## Tasks
 
-Full CRUD plus lifecycle actions and three sub-resource collections (requirements, tests, outputs).
+Tasks are purely human-driven units of work. Verification lives on requirements (which own tests); agent work lives on `agent_assignments`; artifacts live on schedule slots.
 
 ### Core CRUD
 
 | Method | Path | Description | Body / Query | Response |
 |--------|------|-------------|-------------|----------|
-| `GET` | `/api/tasks` | List tasks with requirements & tests | `?initiativeId=<id>&status=pending` (repeatable: `?status=pending&status=assigned`) | `Task[]` each with `requirements` and `tests` arrays |
-| `GET` | `/api/tasks/:id` | Get full task detail | — | `Task & { requirements, tests, outputs, initiative, slot: null }` |
-| `POST` | `/api/tasks` | Create a task | `{ name, objective, initiativeId?, emoji?, requirements?: string[], tests?: string[] }` | `201 Task` (full detail) |
+| `GET` | `/api/tasks` | List tasks | `?initiativeId=<id>&status=pending` (repeatable) | `Task[]` |
+| `GET` | `/api/tasks/:id` | Get full task detail | — | `Task & { requirements: Requirement[], agentAssignments: AgentAssignment[], initiative: {id,emoji,name}\|null, goal: {id,emoji,name}\|null }` |
+| `POST` | `/api/tasks` | Create a task | `{ name, objective, initiativeId?, requirements?: string[] }` | `201 Task` (full detail) |
 | `PATCH` | `/api/tasks/:id` | Update task fields | `{ name?, objective?, status?, sortOrder? }` | `Task` (full detail) |
-| `DELETE` | `/api/tasks/:id` | Hard-delete task | — | `204` |
+| `DELETE` | `/api/tasks/:id` | Hard-delete task (cascades requirements, requirement tests, agent assignments) | — | `204` |
 
 ### Lifecycle Actions
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
 | `POST` | `/api/tasks/:id/start` | Transition status → `in-progress` | — | `Task` |
-| `POST` | `/api/tasks/:id/done` | Complete task (validates all requirements checked) | `{ summary, outputs?: [{ label, url? }] }` | `Task` |
+| `POST` | `/api/tasks/:id/done` | Complete task (validates all requirements checked) | `{ summary }` | `Task` |
 | `POST` | `/api/tasks/:id/block` | Block task with a reason | `{ reason }` | `Task` |
 | `POST` | `/api/tasks/:id/cancel` | Cancel task | — | `Task` |
 
 **Done validation:** returns `400` if any requirement is unchecked, with a `details.incomplete` array listing the unchecked items.
 
-### Requirements Sub-Routes
+### Requirement Creation (under Task)
+
+Requirement creation is scoped under the task for convenience; all other requirement operations live under `/api/requirements/:reqId`.
 
 | Method | Path | Description | Body |
 |--------|------|-------------|------|
 | `POST` | `/api/tasks/:id/requirements` | Add a requirement | `{ description }` |
-| `PATCH` | `/api/tasks/:taskId/requirements/:reqId` | Update description or completion state | `{ description?, completed? }` |
-| `POST` | `/api/tasks/:taskId/requirements/:reqId/check` | Mark requirement completed | — |
-| `POST` | `/api/tasks/:taskId/requirements/:reqId/uncheck` | Mark requirement incomplete | — |
-| `DELETE` | `/api/tasks/:taskId/requirements/:reqId` | Remove a requirement | — |
 
-### Tests Sub-Routes
+---
 
-| Method | Path | Description | Body |
-|--------|------|-------------|------|
-| `POST` | `/api/tasks/:id/tests` | Add a test | `{ description }` |
-| `PATCH` | `/api/tasks/:taskId/tests/:testId` | Update description or passed state | `{ description?, passed? }` |
-| `DELETE` | `/api/tasks/:taskId/tests/:testId` | Remove a test | — |
+## Requirements
 
-### Outputs Sub-Routes
+Requirements are checklist items that gate task completion. Tests live under a requirement — check/uncheck and delete are addressed directly by `reqId` (no task scoping).
 
 | Method | Path | Description | Body |
 |--------|------|-------------|------|
-| `POST` | `/api/tasks/:id/outputs` | Add an output artifact | `{ label, url? }` |
-| `DELETE` | `/api/tasks/:taskId/outputs/:outputId` | Remove an output | — |
+| `PATCH` | `/api/requirements/:reqId` | Update description or completion state | `{ description?, completed? }` |
+| `POST` | `/api/requirements/:reqId/check` | Mark requirement completed | — |
+| `POST` | `/api/requirements/:reqId/uncheck` | Mark requirement incomplete | — |
+| `DELETE` | `/api/requirements/:reqId` | Remove a requirement (cascades its tests) | — |
+
+### Requirement Tests
+
+| Method | Path | Description | Body |
+|--------|------|-------------|------|
+| `POST` | `/api/requirements/:reqId/tests` | Add a test | `{ description }` |
+| `PATCH` | `/api/requirements/:reqId/tests/:testId` | Update description or passed state | `{ description?, passed? }` |
+| `POST` | `/api/requirements/:reqId/tests/:testId/pass` | Mark test passed | — |
+| `POST` | `/api/requirements/:reqId/tests/:testId/unpass` | Mark test not passed | — |
+| `DELETE` | `/api/requirements/:reqId/tests/:testId` | Remove a test | — |
+
+---
+
+## Agent Assignments
+
+Chunks of task work delegated to an agent. They're the unit that gets scheduled into slots (not tasks themselves).
+
+| Method | Path | Description | Body | Response |
+|--------|------|-------------|------|----------|
+| `GET` | `/api/tasks/:taskId/agent-assignments` | List assignments for a task (each with the slots currently referencing it) | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
+| `POST` | `/api/tasks/:taskId/agent-assignments` | Create an assignment | `{ name, agentId?, instructions? }` | `201 AgentAssignment` |
+| `GET` | `/api/agent-assignments/:id` | Get a single assignment | — | `AgentAssignment & { slots: ScheduleSlot[] }` |
+| `PATCH` | `/api/agent-assignments/:id` | Update editable fields | `{ name?, agentId?, instructions?, sortOrder? }` | `AgentAssignment` |
+| `POST` | `/api/agent-assignments/:id/complete` | Set `completed: true` and stamp `completedAt` | — | `AgentAssignment` |
+| `DELETE` | `/api/agent-assignments/:id` | Hard-delete and clear any slots referencing it back to `flex` | — | `204` |
 
 ---
 
@@ -133,22 +155,25 @@ Week plan generation, slot queries, and slot lifecycle management.
 
 | Method | Path | Description | Body / Query | Response |
 |--------|------|-------------|-------------|----------|
-| `GET` | `/api/schedule/today` | Get all slots for today (with task detail) | — | `SlotWithTask[]` (empty array if no plan for this week) |
-| `GET` | `/api/schedule/week` | Get all slots for a week | `?weekStart=YYYY-MM-DD` (defaults to current week) | `{ weekPlan, slots: SlotWithTask[], allocations: WeekGoalAllocation[] }` |
-| `GET` | `/api/schedule/range` | Get all slots in an inclusive date range | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both required) | `{ from, to, slots: SlotWithTask[] }` |
+| `GET` | `/api/schedule/today` | Get all slots for today (enriched with agent assignment + outputs) | — | `SlotWithAssignment[]` (empty array if no plan for this week) |
+| `GET` | `/api/schedule/week` | Get all slots for a week | `?weekStart=YYYY-MM-DD` (defaults to current week) | `{ weekPlan, slots: SlotWithAssignment[], allocations: WeekGoalAllocation[] }` |
+| `GET` | `/api/schedule/range` | Get all slots in an inclusive date range | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both required) | `{ from, to, slots: SlotWithAssignment[] }` |
 | `POST` | `/api/schedule/generate` | Generate a new week plan | `{ weekStart?: string }` (defaults to current week's Sunday) | `201 { weekPlan, slots, allocations }` |
 | `POST` | `/api/schedule/sync` | (stub) Write-through to Obsidian SCHEDULE.md | — | `{ synced: false, message }` |
-| `PATCH` | `/api/schedule/slots/:id` | Update a slot | `{ status?, taskId?, note? }` | `ScheduleSlot` |
+| `PATCH` | `/api/schedule/slots/:id` | Update a slot | `{ status?, agentAssignmentId?, note? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/slots/:id/done` | Mark slot done | `{ note? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/slots/:id/skip` | Skip slot | `{ reason? }` | `ScheduleSlot` |
-| `POST` | `/api/schedule/assign` | Assign a task to a slot | `{ taskId, slotId }` | `ScheduleSlot` |
-| `DELETE` | `/api/schedule/slots/:id/task` | Unassign the task from a slot | — | `ScheduleSlot` |
+| `POST` | `/api/schedule/assign` | Assign an agent assignment to a slot | `{ agentAssignmentId, slotId }` | `ScheduleSlot` |
+| `DELETE` | `/api/schedule/slots/:id/assignment` | Unassign the agent assignment from a slot | — | `ScheduleSlot` |
+| `POST` | `/api/schedule/slots/:id/outputs` | Add an output artifact to a slot | `{ label, url? }` | `201 SlotOutput` |
+| `DELETE` | `/api/schedule/slots/:slotId/outputs/:outputId` | Remove a slot output | — | `204` |
 
 **Notes:**
+- Enriched slots (`SlotWithAssignment`) include `agentAssignment` (with its parent `task` + `initiative` + `goal` if present) and `outputs: SlotOutput[]`.
 - `GET /range` is week-plan-agnostic: it queries slots directly by `date`, so it spans plan boundaries. Returns `400` if `from > to` or either param is missing. Intended for month/year calendar views that need slot density across multiple weeks.
-- `POST /generate` returns `409` if a plan already exists for that week.
-- `POST /assign` sets `slot.type = 'task'`, `slot.status = 'pending'`, `task.status = 'assigned'`, and `task.slotId` in a transaction.
-- `DELETE /slots/:id/task` returns `400` if the slot has no assigned task. Clears `slot.taskId`, resets `slot.status = 'pending'`, and resets `task.status = 'pending'` + clears `task.slotId` in a transaction.
+- `POST /generate` returns `409` if a plan already exists for that week. Slots linked to agent assignments are typed `agent_assignment`.
+- `POST /assign` sets `slot.type = 'agent_assignment'`, `slot.status = 'pending'`, and `slot.agentAssignmentId` in a transaction. Tasks are not modified — scheduling flows through agent assignments now.
+- `DELETE /slots/:id/assignment` returns `400` if the slot has no assigned AA. Clears `slot.agentAssignmentId`, resets `slot.type = 'flex'`, `slot.status = 'pending'`.
 - Week start is always normalized to the Sunday of the given date before querying/inserting.
 
 ---
@@ -164,8 +189,8 @@ Unified board view and Obsidian refresh.
 
 **Board response shape:**
 - `goals[].initiatives[].tasks[]` — full hierarchy
-- `stats` — `{ total, pending, assigned, inProgress, done, blocked, cancelled }`
-- `weekSummary` — `{ weekPlan, totalSlots, taskSlots, doneSlots, skippedSlots, pendingSlots, allocations }` or `null` if no plan for current week
+- `stats` — `{ total, pending, inProgress, done, blocked, cancelled }`
+- `weekSummary` — `{ weekPlan, totalSlots, assignmentSlots, doneSlots, skippedSlots, pendingSlots, allocations }` or `null` if no plan for current week
 
 ---
 

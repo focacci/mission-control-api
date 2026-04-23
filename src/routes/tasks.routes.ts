@@ -1,15 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import * as tasksService from '../services/tasks.service.js';
+import * as requirementsService from '../services/requirements.service.js';
 import {
   CreateTaskSchema,
   UpdateTaskSchema,
   DoneTaskSchema,
   BlockTaskSchema,
   AddRequirementSchema,
-  UpdateRequirementSchema,
-  AddTestSchema,
-  UpdateTestSchema,
-  AddOutputSchema,
 } from '../types/index.types.js';
 
 export async function tasksRoutes(app: FastifyInstance) {
@@ -20,7 +17,6 @@ export async function tasksRoutes(app: FastifyInstance) {
   // GET /api/tasks
   app.get('/api/tasks', async request => {
     const query = request.query as Record<string, string | string[] | undefined>;
-    // status may be a single value or repeated: ?status=pending&status=assigned
     const status = query.status;
     return tasksService.listTasks({
       initiativeId: typeof query.initiativeId === 'string' ? query.initiativeId : undefined,
@@ -82,85 +78,14 @@ export async function tasksRoutes(app: FastifyInstance) {
   });
 
   // ---------------------------------------------------------------------------
-  // Requirements
+  // Requirement creation (scoped under task for convenience)
   // ---------------------------------------------------------------------------
 
   // POST /api/tasks/:id/requirements
   app.post('/api/tasks/:id/requirements', async (request, reply) => {
     const { id } = request.params as { id: string };
     const parsed = AddRequirementSchema.parse(request.body);
-    const req = await tasksService.addRequirement(id, parsed.description);
+    const req = await requirementsService.addRequirement(id, parsed.description);
     return reply.status(201).send(req);
-  });
-
-  // PATCH /api/tasks/:taskId/requirements/:reqId
-  app.patch('/api/tasks/:taskId/requirements/:reqId', async request => {
-    const { taskId, reqId } = request.params as { taskId: string; reqId: string };
-    const parsed = UpdateRequirementSchema.parse(request.body);
-    return tasksService.updateRequirement(taskId, reqId, parsed);
-  });
-
-  // POST /api/tasks/:taskId/requirements/:reqId/check
-  app.post('/api/tasks/:taskId/requirements/:reqId/check', async request => {
-    const { taskId, reqId } = request.params as { taskId: string; reqId: string };
-    return tasksService.checkRequirement(taskId, reqId, true);
-  });
-
-  // POST /api/tasks/:taskId/requirements/:reqId/uncheck
-  app.post('/api/tasks/:taskId/requirements/:reqId/uncheck', async request => {
-    const { taskId, reqId } = request.params as { taskId: string; reqId: string };
-    return tasksService.checkRequirement(taskId, reqId, false);
-  });
-
-  // DELETE /api/tasks/:taskId/requirements/:reqId
-  app.delete('/api/tasks/:taskId/requirements/:reqId', async (request, reply) => {
-    const { taskId, reqId } = request.params as { taskId: string; reqId: string };
-    await tasksService.deleteRequirement(taskId, reqId);
-    return reply.status(204).send();
-  });
-
-  // ---------------------------------------------------------------------------
-  // Tests
-  // ---------------------------------------------------------------------------
-
-  // POST /api/tasks/:id/tests
-  app.post('/api/tasks/:id/tests', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = AddTestSchema.parse(request.body);
-    const test = await tasksService.addTest(id, parsed.description);
-    return reply.status(201).send(test);
-  });
-
-  // PATCH /api/tasks/:taskId/tests/:testId
-  app.patch('/api/tasks/:taskId/tests/:testId', async request => {
-    const { taskId, testId } = request.params as { taskId: string; testId: string };
-    const parsed = UpdateTestSchema.parse(request.body);
-    return tasksService.updateTest(taskId, testId, parsed);
-  });
-
-  // DELETE /api/tasks/:taskId/tests/:testId
-  app.delete('/api/tasks/:taskId/tests/:testId', async (request, reply) => {
-    const { taskId, testId } = request.params as { taskId: string; testId: string };
-    await tasksService.deleteTest(taskId, testId);
-    return reply.status(204).send();
-  });
-
-  // ---------------------------------------------------------------------------
-  // Outputs
-  // ---------------------------------------------------------------------------
-
-  // POST /api/tasks/:id/outputs
-  app.post('/api/tasks/:id/outputs', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parsed = AddOutputSchema.parse(request.body);
-    const output = await tasksService.addOutput(id, parsed.label, parsed.url);
-    return reply.status(201).send(output);
-  });
-
-  // DELETE /api/tasks/:taskId/outputs/:outputId
-  app.delete('/api/tasks/:taskId/outputs/:outputId', async (request, reply) => {
-    const { taskId, outputId } = request.params as { taskId: string; outputId: string };
-    await tasksService.deleteOutput(taskId, outputId);
-    return reply.status(204).send();
   });
 }

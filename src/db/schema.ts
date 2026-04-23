@@ -47,30 +47,6 @@ export const weekPlans = sqliteTable('week_plans', {
   flexSlots: integer('flex_slots').notNull(),
 });
 
-export const scheduleSlots = sqliteTable('schedule_slots', {
-  id: text('id').primaryKey(),
-  weekPlanId: text('week_plan_id')
-    .notNull()
-    .references(() => weekPlans.id, { onDelete: 'cascade' }),
-  date: text('date').notNull(),
-  time: text('time').notNull(),
-  datetime: text('datetime').notNull(),
-  type: text('type', {
-    enum: ['maintenance', 'planning', 'task', 'brief', 'flex'],
-  })
-    .notNull()
-    .default('flex'),
-  status: text('status', {
-    enum: ['pending', 'in-progress', 'done', 'skipped'],
-  })
-    .notNull()
-    .default('pending'),
-  taskId: text('task_id'),
-  goalId: text('goal_id').references(() => goals.id, { onDelete: 'set null' }),
-  note: text('note'),
-  dayOfWeek: text('day_of_week').notNull(),
-});
-
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
@@ -79,15 +55,12 @@ export const tasks = sqliteTable('tasks', {
     onDelete: 'set null',
   }),
   status: text('status', {
-    enum: ['pending', 'assigned', 'in-progress', 'done', 'blocked', 'cancelled'],
+    enum: ['pending', 'in-progress', 'done', 'blocked', 'cancelled'],
   })
     .notNull()
     .default('pending'),
   objective: text('objective').notNull(),
   summary: text('summary'),
-  slotId: text('slot_id').references(() => scheduleSlots.id, {
-    onDelete: 'set null',
-  }),
   sortOrder: integer('sort_order').default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -104,24 +77,14 @@ export const taskRequirements = sqliteTable('task_requirements', {
   sortOrder: integer('sort_order').notNull().default(0),
 });
 
-export const taskTests = sqliteTable('task_tests', {
+export const requirementTests = sqliteTable('requirement_tests', {
   id: text('id').primaryKey(),
-  taskId: text('task_id')
+  requirementId: text('requirement_id')
     .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
+    .references(() => taskRequirements.id, { onDelete: 'cascade' }),
   description: text('description').notNull(),
   passed: integer('passed', { mode: 'boolean' }).notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
-});
-
-export const taskOutputs = sqliteTable('task_outputs', {
-  id: text('id').primaryKey(),
-  taskId: text('task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-  label: text('label').notNull(),
-  url: text('url'),
-  createdAt: text('created_at').notNull(),
 });
 
 export const agents = sqliteTable('agents', {
@@ -137,6 +100,59 @@ export const agents = sqliteTable('agents', {
   systemPrompt: text('system_prompt'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+});
+
+export const agentAssignments = sqliteTable('agent_assignments', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id')
+    .notNull()
+    .references(() => tasks.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  instructions: text('instructions').notNull(),
+  agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
+  completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  completedAt: text('completed_at'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const scheduleSlots = sqliteTable('schedule_slots', {
+  id: text('id').primaryKey(),
+  weekPlanId: text('week_plan_id')
+    .notNull()
+    .references(() => weekPlans.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  time: text('time').notNull(),
+  datetime: text('datetime').notNull(),
+  type: text('type', {
+    enum: ['maintenance', 'planning', 'agent_assignment', 'brief', 'flex'],
+  })
+    .notNull()
+    .default('flex'),
+  status: text('status', {
+    enum: ['pending', 'in-progress', 'done', 'skipped'],
+  })
+    .notNull()
+    .default('pending'),
+  agentAssignmentId: text('agent_assignment_id').references(
+    () => agentAssignments.id,
+    { onDelete: 'set null' },
+  ),
+  goalId: text('goal_id').references(() => goals.id, { onDelete: 'set null' }),
+  note: text('note'),
+  dayOfWeek: text('day_of_week').notNull(),
+});
+
+export const slotOutputs = sqliteTable('slot_outputs', {
+  id: text('id').primaryKey(),
+  slotId: text('slot_id')
+    .notNull()
+    .references(() => scheduleSlots.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  url: text('url'),
+  kind: text('kind', { enum: ['created', 'updated', 'deleted'] }).notNull(),
+  createdAt: text('created_at').notNull(),
 });
 
 export const weekGoalAllocations = sqliteTable('week_goal_allocations', {

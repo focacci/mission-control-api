@@ -122,7 +122,7 @@ export async function completeInitiative(id: string) {
     .where(
       and(
         eq(tasks.initiativeId, id),
-        inArray(tasks.status, ['pending', 'assigned', 'in-progress', 'blocked']),
+        inArray(tasks.status, ['pending', 'in-progress', 'blocked']),
       ),
     );
 
