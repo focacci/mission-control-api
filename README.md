@@ -46,9 +46,13 @@ PORT=3737
 DB_PATH=./data/mission-control.db
 VAULT_PATH=/path/to/your/obsidian/vault
 WORKSPACE_PATH=/path/to/your/workspace
+
+# OpenClaw Gateway (required for live agent runs — see PHASE_2_API_PLAN.md)
+OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
+OPENCLAW_GATEWAY_TOKEN=<shared secret from ~/.openclaw/openclaw.json>
 ```
 
-`DB_PATH` is created automatically on first run if it doesn't exist.
+`DB_PATH` is created automatically on first run if it doesn't exist. The API connects to the OpenClaw gateway on boot and reconnects automatically if the socket drops; if the gateway is unreachable, `/health` will report `gateway.connected: false` until it recovers.
 
 ---
 
@@ -107,8 +111,18 @@ curl -X POST http://localhost:3737/api/sync/import
 
 ```bash
 curl http://localhost:3737/health
-# → { "status": "ok", "goals": 5 }
+# → {
+#     "status": "ok",
+#     "goals": 5,
+#     "gateway": {
+#       "connected": true,
+#       "lastHelloAt": "2026-04-23T22:33:40.140Z",
+#       "deviceTokenPresent": false
+#     }
+#   }
 ```
+
+`gateway.connected` reflects the live state of the OpenClaw WS transport. `deviceTokenPresent` becomes `true` once the gateway issues a long-lived device token (persisted under `data/gateway-device-token.json`).
 
 ---
 

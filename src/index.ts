@@ -20,6 +20,8 @@ import { contextGroupsRoutes } from './routes/contextGroups.routes.js';
 import { briefsRoutes } from './routes/briefs.routes.js';
 import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
+import { initGatewayClient } from './agent/gatewayClient.js';
+import path from 'node:path';
 
 const PORT = Number(process.env.PORT ?? 3737);
 const HOST = '0.0.0.0';
@@ -27,6 +29,22 @@ const HOST = '0.0.0.0';
 const app = Fastify({ logger: true });
 
 await app.register(cors, { origin: true });
+
+// ---------------------------------------------------------------------------
+// Gateway WS client (singleton)
+// ---------------------------------------------------------------------------
+const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL ?? 'ws://127.0.0.1:18789';
+const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+const gateway = initGatewayClient({
+  url: gatewayUrl,
+  token: gatewayToken,
+  deviceTokenStorePath: path.resolve(process.cwd(), 'data', 'gateway-device-token.json'),
+  clientDisplayName: 'mission-control-api',
+  logger: app.log as unknown as Console,
+});
+gateway.connect().catch((err) => {
+  app.log.warn({ err }, 'gateway initial connect failed; reconnect loop will retry');
+});
 
 app.setErrorHandler((err, _request, reply) => {
   if (err instanceof AppError) {
@@ -54,7 +72,15 @@ app.get('/health', async () => {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)` })
     .from(goals);
-  return { status: 'ok', goals: count };
+  return {
+    status: 'ok',
+    goals: count,
+    gateway: {
+      connected: gateway.isReady,
+      lastHelloAt: gateway.lastHelloAt,
+      deviceTokenPresent: Boolean(gateway.deviceToken),
+    },
+  };
 });
 
 // ---------------------------------------------------------------------------

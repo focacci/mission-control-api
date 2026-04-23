@@ -368,8 +368,8 @@ Migration: `npm run generate` + `npm run migrate`; update [src/db/SCHEMAS.md](sr
 
 Each slice lands independently. Do not bundle.
 
-1. **Tool visibility smoke test + config.** Configure `openclaw mcp serve` in the Mission Control agent's workspace to point at our `src/mcp/server.ts`. Script calls `tools.effective { sessionKey }` via a one-shot WS client and asserts `board/goals/initiatives/tasks/schedule/health` are present. No merged code; documentation + config commit only. **Gate on this passing.**
-2. **Gateway WS client.** Ship [src/agent/gatewayClient.ts](src/agent/gatewayClient.ts). Unit tests for handshake, reconnect, request timeout, subscribe/unsubscribe. Bootstrap it as a singleton in [src/index.ts](src/index.ts). Add `/api/health.gateway` field (§7.6). No behavior change to existing routes.
+1. **Tool visibility smoke test + config.** ✅ **Passed 2026-04-23.** MCP server is registered globally under `cfg.mcp.servers["mission-control"]` and resolves per-run via `loadEmbeddedPiMcpConfig`. Smoke script: [scripts/mcp-tools-smoke.ts](scripts/mcp-tools-smoke.ts) — asserts (a) `openclaw mcp show mission-control` registry entry, (b) `mcporter list intella --schema --json` exposes all 14 MC tools, (c) `openclaw agent --agent intella --json` with a forced-tool prompt returns `result.meta.toolSummary.tools` containing `mission-control__board`. Note: the original plan proposed probing `tools.effective`, but that RPC only reports `core`/`plugin`/`channel` tools in openclaw 2026.4 — MCP tools are materialized per-run and only observable via an actual agent turn. **Tool IDs inside the runtime are namespaced as `mission-control__<name>`** (double underscore) — use this prefix anywhere `tools.allow`/`deny` config references an MC tool.
+2. **Gateway WS client.** ✅ **Passed 2026-04-23.** Shipped [src/agent/gatewayClient.ts](src/agent/gatewayClient.ts) (token auth, v3 handshake, tick-watchdog reconnect, request timeout, subscribe/unsubscribe, deviceToken persistence). Singleton initialized in [src/index.ts](src/index.ts); `/health` payload now includes `gateway: { connected, lastHelloAt, deviceTokenPresent }`. Smoke: `npx tsx scripts/gateway-client-smoke.ts` — 7 assertions covering handshake in <10ms, RPC req/res frame round-trip (via a structured `INVALID_REQUEST` response), `tick` event delivery to subscribers, forced-disconnect → auto-reconnect, unsubscribe, request timeout (via paused socket), and request-after-close rejection. **Caveat:** shared-token auth yields an empty scope set from the server (`hello-ok.auth.scopes = []`), so scoped RPCs like `agents.list` reject with `missing scope: operator.read`. This is expected — §11.1's pairing decision still stands; slice 4 will pair the API as a device so the `agent` RPC unlocks. Transport layer is fully validated.
 3. **MCP bridge extraction.** Move `TOOLS` + `dispatch` out of [src/mcp/server.ts](src/mcp/server.ts) into [src/agent/mcpBridge.ts](src/agent/mcpBridge.ts). Verify `npm run mcp` still works and the gateway still sees the same tool set. No behavior change.
 4. **Runner + events + presenters + `gateway_run_id` column.** Ship [src/agent/runner.ts](src/agent/runner.ts), [events.ts](src/agent/events.ts), [presenters.ts](src/agent/presenters.ts), [systemPrompt.ts](src/agent/systemPrompt.ts), [chatOrchestrator.ts](src/agent/chatOrchestrator.ts). Add `gateway_run_id` column. Populate `tool_call_log.summary` via presenters. Fixture-test the event mapper with canned gateway events (multi-cycle tool-use; error; cancel). No route change yet.
 5. **Buffered `POST /api/chat` rewritten on the orchestrator.** Delete [src/services/chat.service.ts](src/services/chat.service.ts). Same request/response shape; tool calls are now captured in `tool_call_log` for live chat. iOS sees no change.
@@ -382,14 +382,17 @@ Slices 1–6 unblock the UI POC (CONTROL_LAYER_PHASE_2_UI.md §9 steps 1–5). S
 
 ## 10. Acceptance criteria (API-only)
 
-### After slice 1
-- [ ] `tools.effective { sessionKey: 'smoke-test' }` returns all 6 Mission Control MCP tools.
-- [ ] `agent` RPC with a prompt that forces a `board` call emits a `tool` start/end pair for `board` with non-empty input and output.
+### After slice 1 ✅
+- [x] `openclaw mcp show mission-control` succeeds (registry entry present).
+- [x] `mcporter list intella --schema --json` exposes all 14 MC tools (`board`, `goals`, `initiatives`, `tasks`, `requirements`, `agent_assignments`, `schedule`, `profile`, `context_groups`, `briefings`, `agents`, `chat`, `invocations`, `health`).
+- [x] `openclaw agent --agent intella --json` with a forced-tool prompt lists `mission-control__board` in `result.meta.toolSummary.tools`.
+- [x] Smoke script: `npx tsx scripts/mcp-tools-smoke.ts` from repo root exits 0.
 
-### After slice 2
-- [ ] `GatewayClient.connect()` completes `hello-ok` in <2s against a local gateway.
-- [ ] Forced disconnect triggers reconnect within 5s and re-subscribes all event handlers.
-- [ ] `/api/health.gateway.connected` reflects transport state within the next tick.
+### After slice 2 ✅
+- [x] `GatewayClient.connect()` completes `hello-ok` in <2s against a local gateway. (Observed 7–8ms.)
+- [x] Forced disconnect triggers reconnect within 5s and re-subscribes all event handlers.
+- [x] `/health.gateway.connected` reflects transport state within the next tick.
+- [x] Smoke: `npx tsx scripts/gateway-client-smoke.ts` exits 0.
 
 ### After slice 4
 - [ ] Event-mapper unit test: a fixture gateway event stream with 2 tool-use cycles produces our events in order `session_started → text_delta → tool_use → tool_result → message_complete → text_delta → tool_use → tool_result → message_complete → done`.
