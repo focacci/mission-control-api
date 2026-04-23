@@ -17,6 +17,12 @@
 - [`agent_invocations`](#agent_invocations)
 - [`chat_messages`](#chat_messages)
 - [`tool_call_log`](#tool_call_log)
+- [`profile_sections`](#profile_sections)
+- [`profile_entries`](#profile_entries)
+- [`pinned_contexts`](#pinned_contexts)
+- [`context_groups`](#context_groups)
+- [`context_group_members`](#context_group_members)
+- [`briefs`](#briefs)
 - [Relationships Overview](#relationships-overview)
 
 ---
@@ -296,6 +302,115 @@ Structured record of every tool the model called during an invocation (primarily
 
 ---
 
+## `profile_sections`
+
+Long-running picture the agent has built of the user, bucketed into six fixed sections (`overview`, `traits`, `habits`, `places`, `activities`, `purpose`). Seeded once at install; never deleted.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | stable slug: `overview`, `traits`, `habits`, `places`, `activities`, `purpose` |
+| `label` | `text` | display label |
+| `icon` | `text` | SF Symbol name |
+| `summary` | `text` nullable | optional narrative paragraph for the section |
+| `sort_order` | `integer` default 0 | |
+| `updated_at` | `text` | ISO timestamp |
+
+---
+
+## `profile_entries`
+
+Structured facts the agent (or user) has recorded under a section — "Early riser", "Loves Lake Tahoe", etc.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `section_id` | `text` FK → `profile_sections.id` | `ON DELETE CASCADE` |
+| `label` | `text` | short description |
+| `detail` | `text` nullable | expanded text |
+| `confidence` | `text` enum | `observed` \| `inferred` \| `stated` — default `observed` |
+| `source` | `text` nullable | free text: `chat`, `manual`, invocation id |
+| `sort_order` | `integer` default 0 | |
+| `created_at` | `text` | ISO timestamp |
+| `updated_at` | `text` | ISO timestamp |
+
+---
+
+## `pinned_contexts`
+
+Flat list of chat-context refs the user has pinned. Each row captures the display snapshot (label, icon, typeName) at save time so the UI renders without resolving the ref. `payload` is a JSON blob for extras (e.g. `{date, mode}` for schedule contexts) that don't fit in `(contextType, contextId)`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `context_type` | `text` | matches `ChatContextKind.contextType` |
+| `context_id` | `text` nullable | entity id, null for non-entity kinds |
+| `label` | `text` | snapshot display label |
+| `icon` | `text` | SF Symbol name |
+| `type_name` | `text` | human-readable "kind" label |
+| `payload` | `text` nullable | JSON extras |
+| `sort_order` | `integer` default 0 | |
+| `created_at` | `text` | ISO timestamp |
+
+**Uniqueness:** service-level only. `(context_type, context_id, payload)` equality requires parsing `payload`, so no DB constraint.
+
+---
+
+## `context_groups`
+
+User-defined bundle of multiple chat-context refs. Opening a group loads every member as a chat context.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `name` | `text` | display name |
+| `icon` | `text` | SF Symbol — default `point.3.connected.trianglepath.dotted` |
+| `summary` | `text` nullable | |
+| `sort_order` | `integer` default 0 | |
+| `created_at` | `text` | ISO timestamp |
+| `updated_at` | `text` | ISO timestamp |
+
+---
+
+## `context_group_members`
+
+Members of a context group. Same shape as `pinned_contexts` plus a `group_id` FK.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `group_id` | `text` FK → `context_groups.id` | `ON DELETE CASCADE` |
+| `context_type` | `text` | |
+| `context_id` | `text` nullable | |
+| `label` | `text` | |
+| `icon` | `text` | |
+| `type_name` | `text` | |
+| `payload` | `text` nullable | |
+| `sort_order` | `integer` default 0 | |
+
+---
+
+## `briefs`
+
+Morning / afternoon / evening snapshot the agent generates (or the user authors manually) for a given day. At most one row per `(date, kind)` — enforced by `briefs_date_kind_unique`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `date` | `text` | `YYYY-MM-DD` |
+| `kind` | `text` enum | `morning` \| `afternoon` \| `evening` |
+| `status` | `text` enum | `pending` \| `generating` \| `ready` \| `error` — default `pending` |
+| `title` | `text` nullable | |
+| `body` | `text` nullable | markdown |
+| `references` | `text` nullable | JSON: `{tasks: string[], slots: string[], initiatives: string[]}` |
+| `invocation_id` | `text` nullable | `agent_invocations.id` that produced this (soft link — no FK) |
+| `generated_at` | `text` nullable | ISO timestamp |
+| `created_at` | `text` | ISO timestamp |
+| `updated_at` | `text` | ISO timestamp |
+
+**Indexes:** unique composite `(date, kind)`.
+
+---
+
 ## Relationships Overview
 
 ```
@@ -317,6 +432,16 @@ chat_sessions
         └── tool_call_log (message_id → chat_messages.id, CASCADE)
 
 agent_invocations (soft link via session_id / trigger_ref_id — no FK)
+
+profile_sections
+  └── profile_entries (section_id → profile_sections.id, CASCADE)
+
+context_groups
+  └── context_group_members (group_id → context_groups.id, CASCADE)
+
+pinned_contexts (flat list, no FK)
+
+briefs (soft link via invocation_id — no FK)
 ```
 
 **Delete behavior:** deleting a goal hard-deletes its initiatives, tasks, requirements, requirement tests, and agent assignments in a transaction (service-level cascade). Schedule slots that referenced deleted agent assignments are cleared back to `flex` slots with `agent_assignment_id = null`. The FK `ON DELETE SET NULL` / `CASCADE` settings are safety nets; the services never rely on them alone.

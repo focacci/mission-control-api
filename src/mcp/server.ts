@@ -8,6 +8,9 @@ import * as requirementsService from '../services/requirements.service.js';
 import * as aaService from '../services/agentAssignments.service.js';
 import * as scheduleService from '../services/schedule.service.js';
 import * as boardService from '../services/board.service.js';
+import * as profileService from '../services/profile.service.js';
+import * as contextGroupsService from '../services/contextGroups.service.js';
+import * as briefsService from '../services/briefs.service.js';
 
 // ---------------------------------------------------------------------------
 // Coarse-grained tool definitions (one tool per domain aggregate).
@@ -197,6 +200,113 @@ const TOOLS = [
           description: 'Output kind (add_output).',
         },
         outputId: { type: 'string', description: 'Output ID (delete_output).' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'profile',
+    description:
+      "Long-running picture of the user (sections + entries). Default action `get` returns the full profile — prefer this so you can reason over every section in one call. Actions: get, get_section, update_section, add_entry, update_entry, delete_entry.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: [
+            'get', 'get_section', 'update_section',
+            'add_entry', 'update_entry', 'delete_entry',
+          ],
+          description: 'Operation to perform. Defaults to `get` if omitted.',
+        },
+        sectionId: {
+          type: 'string',
+          description: "Section id (e.g. 'overview', 'traits'). Required for section/add_entry actions.",
+        },
+        entryId: { type: 'string', description: 'Entry id (for update_entry/delete_entry).' },
+        summary: { type: 'string', description: 'Section summary (null to clear on update_section).' },
+        label: { type: 'string', description: 'Entry label (add_entry/update_entry).' },
+        detail: { type: 'string', description: 'Entry detail text (null to clear).' },
+        confidence: {
+          type: 'string',
+          enum: ['observed', 'inferred', 'stated'],
+          description: 'How the agent knows this entry.',
+        },
+        source: { type: 'string', description: 'Free-text source (chat, manual, invocation id).' },
+        sortOrder: { type: 'number' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'context_groups',
+    description:
+      "User's saved chat-context bundles. Pinned contexts are a flat list; groups bundle multiple context refs. Actions: list_pinned, pin, unpin, list_groups, get_group, create_group, update_group, delete_group, add_member, remove_member.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: [
+            'list_pinned', 'pin', 'unpin',
+            'list_groups', 'get_group', 'create_group', 'update_group', 'delete_group',
+            'add_member', 'remove_member',
+          ],
+          description: 'Operation to perform.',
+        },
+        id: { type: 'string', description: 'Pinned context id (unpin) or group id (get/update/delete/add_member).' },
+        groupId: { type: 'string', description: 'Group id for remove_member.' },
+        memberId: { type: 'string', description: 'Member id for remove_member.' },
+        contextType: { type: 'string', description: 'Maps to ChatContextKind.contextType.' },
+        contextId: { type: 'string', description: 'Entity id (null for non-entity kinds).' },
+        label: { type: 'string', description: 'Display snapshot label.' },
+        icon: { type: 'string', description: 'SF Symbol snapshot.' },
+        typeName: { type: 'string', description: 'Human-readable kind label.' },
+        payload: { type: 'string', description: 'JSON blob of extras (date, mode, section, etc.).' },
+        name: { type: 'string', description: 'Group name (create_group/update_group).' },
+        summary: { type: 'string', description: 'Group summary (null to clear on update_group).' },
+        members: {
+          type: 'array',
+          description: 'Initial members for create_group.',
+          items: { type: 'object' },
+        },
+        sortOrder: { type: 'number' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'briefings',
+    description:
+      'Morning/afternoon/evening briefings per day. `generate` kicks the agent (Track C) — returns 501 until runner ships; other actions (including manual PATCH via update) are usable now. Actions: list, get, get_by_date, generate, update, delete.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'get', 'get_by_date', 'generate', 'update', 'delete'],
+          description: 'Operation to perform.',
+        },
+        id: { type: 'string', description: 'Brief id (get/update/delete).' },
+        date: { type: 'string', description: 'YYYY-MM-DD (get_by_date/generate).' },
+        from: { type: 'string', description: 'List range start YYYY-MM-DD.' },
+        to: { type: 'string', description: 'List range end YYYY-MM-DD.' },
+        kind: {
+          type: 'string',
+          enum: ['morning', 'afternoon', 'evening'],
+          description: 'Brief slot (generate).',
+        },
+        title: { type: 'string', description: 'Brief title (null to clear on update).' },
+        body: { type: 'string', description: 'Brief body markdown (null to clear on update).' },
+        references: {
+          type: 'string',
+          description: 'JSON blob of referenced entity ids (null to clear on update).',
+        },
+        status: {
+          type: 'string',
+          enum: ['pending', 'generating', 'ready', 'error'],
+          description: 'Status (update only).',
+        },
       },
       required: ['action'],
     },
@@ -469,6 +579,131 @@ async function dispatchSchedule(action: string, args: Args): Promise<unknown> {
   }
 }
 
+async function dispatchProfile(action: string | undefined, args: Args): Promise<unknown> {
+  switch (action ?? 'get') {
+    case 'get':
+      return profileService.getProfile();
+    case 'get_section':
+      return profileService.getSection(requireArg<string>(args, 'sectionId'));
+    case 'update_section':
+      return profileService.updateSection(requireArg<string>(args, 'sectionId'), {
+        summary: optArg<string | null>(args, 'summary'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
+      });
+    case 'add_entry':
+      return profileService.addEntry(requireArg<string>(args, 'sectionId'), {
+        label: requireArg<string>(args, 'label'),
+        detail: optArg<string | null>(args, 'detail'),
+        confidence: optArg<'observed' | 'inferred' | 'stated'>(args, 'confidence'),
+        source: optArg<string | null>(args, 'source'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
+      });
+    case 'update_entry':
+      return profileService.updateEntry(requireArg<string>(args, 'entryId'), {
+        label: optArg<string>(args, 'label'),
+        detail: optArg<string | null>(args, 'detail'),
+        confidence: optArg<'observed' | 'inferred' | 'stated'>(args, 'confidence'),
+        source: optArg<string | null>(args, 'source'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
+      });
+    case 'delete_entry':
+      await profileService.deleteEntry(requireArg<string>(args, 'entryId'));
+      return { deleted: true };
+    default:
+      throw new AppError(400, `Unknown profile action: ${action}`);
+  }
+}
+
+async function dispatchContextGroups(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'list_pinned':
+      return contextGroupsService.listPinnedContexts();
+    case 'pin':
+      return contextGroupsService.createPinnedContext({
+        contextType: requireArg<string>(args, 'contextType'),
+        contextId: optArg<string | null>(args, 'contextId'),
+        label: requireArg<string>(args, 'label'),
+        icon: requireArg<string>(args, 'icon'),
+        typeName: requireArg<string>(args, 'typeName'),
+        payload: optArg<string | null>(args, 'payload'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
+      });
+    case 'unpin':
+      await contextGroupsService.deletePinnedContext(requireArg<string>(args, 'id'));
+      return { deleted: true };
+    case 'list_groups':
+      return contextGroupsService.listContextGroups();
+    case 'get_group':
+      return contextGroupsService.getContextGroup(requireArg<string>(args, 'id'));
+    case 'create_group':
+      return contextGroupsService.createContextGroup({
+        name: requireArg<string>(args, 'name'),
+        icon: optArg<string>(args, 'icon'),
+        summary: optArg<string | null>(args, 'summary'),
+        members: optArg<any[]>(args, 'members'),
+      });
+    case 'update_group':
+      return contextGroupsService.updateContextGroup(requireArg<string>(args, 'id'), {
+        name: optArg<string>(args, 'name'),
+        icon: optArg<string>(args, 'icon'),
+        summary: optArg<string | null>(args, 'summary'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
+      });
+    case 'delete_group':
+      await contextGroupsService.deleteContextGroup(requireArg<string>(args, 'id'));
+      return { deleted: true };
+    case 'add_member':
+      return contextGroupsService.addContextGroupMember(requireArg<string>(args, 'id'), {
+        contextType: requireArg<string>(args, 'contextType'),
+        contextId: optArg<string | null>(args, 'contextId'),
+        label: requireArg<string>(args, 'label'),
+        icon: requireArg<string>(args, 'icon'),
+        typeName: requireArg<string>(args, 'typeName'),
+        payload: optArg<string | null>(args, 'payload'),
+        sortOrder: optArg<number>(args, 'sortOrder'),
+      });
+    case 'remove_member':
+      await contextGroupsService.removeContextGroupMember(
+        requireArg<string>(args, 'groupId'),
+        requireArg<string>(args, 'memberId'),
+      );
+      return { deleted: true };
+    default:
+      throw new AppError(400, `Unknown context_groups action: ${action}`);
+  }
+}
+
+async function dispatchBriefings(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'list':
+      return briefsService.listBriefs({
+        from: requireArg<string>(args, 'from'),
+        to: requireArg<string>(args, 'to'),
+      });
+    case 'get':
+      return briefsService.getBrief(requireArg<string>(args, 'id'));
+    case 'get_by_date':
+      return briefsService.getBriefsByDate(requireArg<string>(args, 'date'));
+    case 'generate':
+      return briefsService.generateBrief({
+        date: requireArg<string>(args, 'date'),
+        kind: requireArg<'morning' | 'afternoon' | 'evening'>(args, 'kind'),
+      });
+    case 'update':
+      return briefsService.updateBrief(requireArg<string>(args, 'id'), {
+        title: optArg<string | null>(args, 'title'),
+        body: optArg<string | null>(args, 'body'),
+        references: optArg<string | null>(args, 'references'),
+        status: optArg<'pending' | 'generating' | 'ready' | 'error'>(args, 'status'),
+      });
+    case 'delete':
+      await briefsService.deleteBrief(requireArg<string>(args, 'id'));
+      return { deleted: true };
+    default:
+      throw new AppError(400, `Unknown briefings action: ${action}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Top-level dispatch
 // ---------------------------------------------------------------------------
@@ -493,6 +728,12 @@ async function dispatch(name: string, args: Args): Promise<unknown> {
       return dispatchAgentAssignments(requireArg<string>(args, 'action'), args);
     case 'schedule':
       return dispatchSchedule(requireArg<string>(args, 'action'), args);
+    case 'profile':
+      return dispatchProfile(optArg<string>(args, 'action'), args);
+    case 'context_groups':
+      return dispatchContextGroups(requireArg<string>(args, 'action'), args);
+    case 'briefings':
+      return dispatchBriefings(requireArg<string>(args, 'action'), args);
     default:
       throw new AppError(404, `Unknown tool: ${name}`);
   }

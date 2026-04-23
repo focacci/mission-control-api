@@ -15,6 +15,9 @@ import { chatRoutes } from './routes/chat.routes.js';
 import { agentsRoutes } from './routes/agents.routes.js';
 import { conversationsRoutes } from './routes/conversations.routes.js';
 import { invocationsRoutes } from './routes/invocations.routes.js';
+import { profileRoutes } from './routes/profile.routes.js';
+import { contextGroupsRoutes } from './routes/contextGroups.routes.js';
+import { briefsRoutes } from './routes/briefs.routes.js';
 import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
 
@@ -68,6 +71,9 @@ await app.register(chatRoutes);
 await app.register(conversationsRoutes);
 await app.register(invocationsRoutes);
 await app.register(agentsRoutes);
+await app.register(profileRoutes);
+await app.register(contextGroupsRoutes);
+await app.register(briefsRoutes);
 
 // ---------------------------------------------------------------------------
 // Start
@@ -84,6 +90,9 @@ try {
   app.log.info(`Agents:       http://localhost:${PORT}/api/agents`);
   app.log.info(`Sessions:     http://localhost:${PORT}/api/chat/sessions`);
   app.log.info(`Invocations:  http://localhost:${PORT}/api/invocations`);
+  app.log.info(`Profile:      http://localhost:${PORT}/api/profile`);
+  app.log.info(`Contexts:     http://localhost:${PORT}/api/pinned-contexts`);
+  app.log.info(`Briefs:       http://localhost:${PORT}/api/briefs`);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

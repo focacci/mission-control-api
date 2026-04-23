@@ -240,6 +240,80 @@ export const ListInvocationsQuerySchema = z.object({
   since: z.string().optional(),
 });
 
+// Profile
+export const PROFILE_CONFIDENCE = ['observed', 'inferred', 'stated'] as const;
+
+export const UpdateProfileSectionSchema = z.object({
+  summary: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const AddProfileEntrySchema = z.object({
+  label: z.string().min(1),
+  detail: z.string().nullable().optional(),
+  confidence: z.enum(PROFILE_CONFIDENCE).optional(),
+  source: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const UpdateProfileEntrySchema = z.object({
+  label: z.string().min(1).optional(),
+  detail: z.string().nullable().optional(),
+  confidence: z.enum(PROFILE_CONFIDENCE).optional(),
+  source: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+// Pinned contexts & context groups
+const NewContextRefSchema = z.object({
+  contextType: z.string().min(1),
+  contextId: z.string().nullable().optional(),
+  label: z.string().min(1),
+  icon: z.string().min(1),
+  typeName: z.string().min(1),
+  payload: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const CreatePinnedContextSchema = NewContextRefSchema;
+
+export const CreateContextGroupSchema = z.object({
+  name: z.string().min(1),
+  icon: z.string().min(1).optional(),
+  summary: z.string().nullable().optional(),
+  members: z.array(NewContextRefSchema).optional(),
+});
+
+export const UpdateContextGroupSchema = z.object({
+  name: z.string().min(1).optional(),
+  icon: z.string().min(1).optional(),
+  summary: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const AddContextGroupMemberSchema = NewContextRefSchema;
+
+// Briefings
+export const BRIEF_KINDS = ['morning', 'afternoon', 'evening'] as const;
+export const BRIEF_STATUSES = ['pending', 'generating', 'ready', 'error'] as const;
+
+export const ListBriefsQuerySchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+export const GenerateBriefSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  kind: z.enum(BRIEF_KINDS),
+});
+
+export const UpdateBriefSchema = z.object({
+  title: z.string().nullable().optional(),
+  body: z.string().nullable().optional(),
+  status: z.enum(BRIEF_STATUSES).optional(),
+  references: z.string().nullable().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
@@ -272,3 +346,13 @@ export type CreateSessionInputZ = z.infer<typeof CreateSessionSchema>;
 export type ListSessionsQuery = z.infer<typeof ListSessionsQuerySchema>;
 export type ListMessagesQuery = z.infer<typeof ListMessagesQuerySchema>;
 export type ListInvocationsQuery = z.infer<typeof ListInvocationsQuerySchema>;
+export type UpdateProfileSectionInput = z.infer<typeof UpdateProfileSectionSchema>;
+export type AddProfileEntryInput = z.infer<typeof AddProfileEntrySchema>;
+export type UpdateProfileEntryInput = z.infer<typeof UpdateProfileEntrySchema>;
+export type CreatePinnedContextInput = z.infer<typeof CreatePinnedContextSchema>;
+export type CreateContextGroupInput = z.infer<typeof CreateContextGroupSchema>;
+export type UpdateContextGroupInput = z.infer<typeof UpdateContextGroupSchema>;
+export type AddContextGroupMemberInput = z.infer<typeof AddContextGroupMemberSchema>;
+export type ListBriefsQuery = z.infer<typeof ListBriefsQuerySchema>;
+export type GenerateBriefInput = z.infer<typeof GenerateBriefSchema>;
+export type UpdateBriefInput = z.infer<typeof UpdateBriefSchema>;

@@ -7,7 +7,8 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { db } from './client.js';
-import { goals, initiatives, tasks, taskRequirements, requirementTests } from './schema.js';
+import { goals, initiatives, tasks, taskRequirements, requirementTests, profileSections } from './schema.js';
+import { eq } from 'drizzle-orm';
 
 config();
 
@@ -348,6 +349,47 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
 }
 
 // ---------------------------------------------------------------------------
+// Profile sections — static defaults mirroring ProfileView.swift
+// ---------------------------------------------------------------------------
+
+const PROFILE_SECTION_DEFAULTS: Array<{ id: string; label: string; icon: string }> = [
+  { id: 'overview',   label: 'Overview',   icon: 'person.text.rectangle' },
+  { id: 'traits',     label: 'Traits',     icon: 'scale.3d' },
+  { id: 'habits',     label: 'Habits',     icon: 'repeat' },
+  { id: 'places',     label: 'Places',     icon: 'mappin.and.ellipse' },
+  { id: 'activities', label: 'Activities', icon: 'figure.run' },
+  { id: 'purpose',    label: 'Purpose',    icon: 'target' },
+];
+
+async function seedProfileSections(): Promise<number> {
+  let count = 0;
+  const timestamp = now();
+  for (let i = 0; i < PROFILE_SECTION_DEFAULTS.length; i++) {
+    const def = PROFILE_SECTION_DEFAULTS[i];
+    const existing = await db
+      .select({ id: profileSections.id })
+      .from(profileSections)
+      .where(eq(profileSections.id, def.id));
+    if (existing.length > 0) {
+      console.log(`  ~ Profile section already exists: ${def.id}`);
+      continue;
+    }
+    await db.insert(profileSections).values({
+      id: def.id,
+      label: def.label,
+      icon: def.icon,
+      summary: null,
+      sortOrder: i,
+      updatedAt: timestamp,
+    });
+    console.log(`  ✓ Profile section: ${def.id}`);
+    count++;
+  }
+  console.log(`  Inserted ${count} profile sections`);
+  return count;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -366,6 +408,10 @@ async function main() {
   console.log('');
   console.log('🫡 Importing tasks...');
   await importTasks(initNameToId);
+
+  console.log('');
+  console.log('👤 Seeding profile sections...');
+  await seedProfileSections();
 
   console.log('');
   console.log('✅ Seed complete.');

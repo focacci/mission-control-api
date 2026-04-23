@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const goals = sqliteTable('goals', {
   id: text('id').primaryKey(),
@@ -209,6 +209,89 @@ export const chatMessages = sqliteTable('chat_messages', {
   sortOrder: integer('sort_order').notNull(),
   createdAt: text('created_at').notNull(),
 });
+
+export const profileSections = sqliteTable('profile_sections', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+  icon: text('icon').notNull(),
+  summary: text('summary'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const profileEntries = sqliteTable('profile_entries', {
+  id: text('id').primaryKey(),
+  sectionId: text('section_id')
+    .notNull()
+    .references(() => profileSections.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  detail: text('detail'),
+  confidence: text('confidence', { enum: ['observed', 'inferred', 'stated'] })
+    .notNull()
+    .default('observed'),
+  source: text('source'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const pinnedContexts = sqliteTable('pinned_contexts', {
+  id: text('id').primaryKey(),
+  contextType: text('context_type').notNull(),
+  contextId: text('context_id'),
+  label: text('label').notNull(),
+  icon: text('icon').notNull(),
+  typeName: text('type_name').notNull(),
+  payload: text('payload'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+});
+
+export const contextGroups = sqliteTable('context_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  icon: text('icon').notNull().default('point.3.connected.trianglepath.dotted'),
+  summary: text('summary'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const contextGroupMembers = sqliteTable('context_group_members', {
+  id: text('id').primaryKey(),
+  groupId: text('group_id')
+    .notNull()
+    .references(() => contextGroups.id, { onDelete: 'cascade' }),
+  contextType: text('context_type').notNull(),
+  contextId: text('context_id'),
+  label: text('label').notNull(),
+  icon: text('icon').notNull(),
+  typeName: text('type_name').notNull(),
+  payload: text('payload'),
+  sortOrder: integer('sort_order').notNull().default(0),
+});
+
+export const briefs = sqliteTable(
+  'briefs',
+  {
+    id: text('id').primaryKey(),
+    date: text('date').notNull(),
+    kind: text('kind', { enum: ['morning', 'afternoon', 'evening'] }).notNull(),
+    status: text('status', { enum: ['pending', 'generating', 'ready', 'error'] })
+      .notNull()
+      .default('pending'),
+    title: text('title'),
+    body: text('body'),
+    references: text('references'),
+    invocationId: text('invocation_id'),
+    generatedAt: text('generated_at'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  table => ({
+    dateKindUnique: uniqueIndex('briefs_date_kind_unique').on(table.date, table.kind),
+  }),
+);
 
 export const toolCallLog = sqliteTable('tool_call_log', {
   id: text('id').primaryKey(),

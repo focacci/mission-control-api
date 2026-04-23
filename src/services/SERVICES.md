@@ -83,6 +83,32 @@
 - [Tool Calls Service](#tool-calls-service)
   - [`recordToolCallStart`](#recordtoolcallstartinput)
   - [`recordToolCallResult`](#recordtoolcallresultid-input)
+- [Profile Service](#profile-service)
+  - [`getProfile`](#getprofile)
+  - [`getSection`](#getsectionsectionid)
+  - [`updateSection`](#updatesectionsectionid-input)
+  - [`addEntry`](#addentrysectionid-input)
+  - [`updateEntry`](#updateentryentryid-input)
+  - [`deleteEntry`](#deleteentryentryid)
+- [Context Groups Service](#context-groups-service)
+  - [`listPinnedContexts`](#listpinnedcontexts)
+  - [`createPinnedContext`](#createpinnedcontextinput)
+  - [`deletePinnedContext`](#deletepinnedcontextid)
+  - [`listContextGroups`](#listcontextgroups)
+  - [`getContextGroup`](#getcontextgroupid)
+  - [`createContextGroup`](#createcontextgroupinput)
+  - [`updateContextGroup`](#updatecontextgroupid-input)
+  - [`deleteContextGroup`](#deletecontextgroupid)
+  - [`addContextGroupMember`](#addcontextgroupmembergroupid-input)
+  - [`removeContextGroupMember`](#removecontextgroupmembergroupid-memberid)
+- [Briefs Service](#briefs-service)
+  - [`listBriefs`](#listbriefsopts)
+  - [`getBrief`](#getbriefid)
+  - [`getBriefsByDate`](#getbriefsbydatedate)
+  - [`generateBrief`](#generatebriefinput)
+  - [`updateBrief`](#updatebriefid-input)
+  - [`deleteBrief`](#deletebriefid)
+  - [`upsertStubBrief`](#upsertstubbriefdate-kind)
 
 ---
 
@@ -760,3 +786,154 @@ recordToolCallResult(id: string, input: {
 ```
 
 Sets `output` (JSON-encoded), `isError`, `endedAt = now()`, and `durationMs`. Throws `notFound` if the tool-call row doesn't exist.
+
+---
+
+## Profile Service
+
+Manages the user's long-running profile (structured sections + entries). Sections are static and seeded at install; entries are fully CRUD. See [profile.service.ts](profile.service.ts).
+
+### `getProfile()`
+
+```ts
+getProfile(): Promise<{ sections: (ProfileSection & { entries: ProfileEntry[] })[] }>
+```
+
+Returns every section ordered by `sortOrder`, each with its entries sorted by `sortOrder` then `createdAt`.
+
+### `getSection(sectionId)`
+
+```ts
+getSection(sectionId: string): Promise<ProfileSection & { entries: ProfileEntry[] }>
+```
+
+Returns one section with its entries. Throws `AppError(404)` if the section id is unknown.
+
+### `updateSection(sectionId, input)`
+
+```ts
+updateSection(sectionId: string, input: UpdateProfileSectionInput): Promise<ProfileSection>
+```
+
+Updates `summary` (null clears) and/or `sortOrder`. Stamps `updatedAt`.
+
+### `addEntry(sectionId, input)`
+
+```ts
+addEntry(sectionId: string, input: AddProfileEntryInput): Promise<ProfileEntry>
+```
+
+Inserts an entry under the section. Defaults `confidence` to `observed` and `sortOrder` to 0. Bumps the section's `updatedAt`. Throws `AppError(404)` if the section id is unknown.
+
+### `updateEntry(entryId, input)`
+
+```ts
+updateEntry(entryId: string, input: UpdateProfileEntryInput): Promise<ProfileEntry>
+```
+
+Partial update. Nullable fields (`detail`, `source`) accept `null` to clear. Bumps both the entry's and its parent section's `updatedAt`.
+
+### `deleteEntry(entryId)`
+
+Hard-deletes the entry and bumps the parent section's `updatedAt`.
+
+---
+
+## Context Groups Service
+
+Persists the floating chat's pinned contexts and context groups. Each stored row snapshots the display label/icon at save time so the UI renders without resolving the ref. See [contextGroups.service.ts](contextGroups.service.ts).
+
+### `listPinnedContexts()`
+
+```ts
+listPinnedContexts(): Promise<PinnedContext[]>
+```
+
+Flat list sorted by `sortOrder` then `createdAt`.
+
+### `createPinnedContext(input)`
+
+Inserts a `pinned_contexts` row. No dedup — the client is responsible for ensuring a matching ref isn't already pinned.
+
+### `deletePinnedContext(id)`
+
+Hard delete. Throws `AppError(404)` if the id is unknown.
+
+### `listContextGroups()`
+
+```ts
+listContextGroups(): Promise<(ContextGroup & { members: ContextGroupMember[] })[]>
+```
+
+Returns every group with its members, both sorted by `sortOrder`.
+
+### `getContextGroup(id)`
+
+Single group with members. Throws `AppError(404)` if not found.
+
+### `createContextGroup(input)`
+
+Inserts the group plus any initial `members[]` in a single transaction. Each member gets a fresh `id`; missing `sortOrder` defaults to the member's index in the array.
+
+### `updateContextGroup(id, input)`
+
+Partial update of `name`, `icon`, `summary` (null clears), `sortOrder`. Stamps `updatedAt`.
+
+### `deleteContextGroup(id)`
+
+Transactional hard delete: members first, then the group.
+
+### `addContextGroupMember(groupId, input)`
+
+Inserts a member under the group and bumps the group's `updatedAt`. Throws `AppError(404)` if the group id is unknown.
+
+### `removeContextGroupMember(groupId, memberId)`
+
+Deletes the member, bumping the group's `updatedAt`. Throws `AppError(404)` if the member id is unknown or doesn't belong to the given group.
+
+---
+
+## Briefs Service
+
+Reads and writes morning/afternoon/evening briefings. Generation itself is delegated to the agent runner (Track C); until it ships, `generateBrief` returns `AppError(501)` and briefs can still be authored manually via `updateBrief`. See [briefs.service.ts](briefs.service.ts).
+
+### `listBriefs(opts)`
+
+```ts
+listBriefs(opts: { from: string; to: string }): Promise<Brief[]>
+```
+
+Returns briefs within the inclusive `[from, to]` date range. Ordered by `date desc`, then `kind` in canonical order (morning, afternoon, evening). Throws `AppError(400)` if `from > to`.
+
+### `getBrief(id)`
+
+Single row. Throws `AppError(404)` if not found.
+
+### `getBriefsByDate(date)`
+
+```ts
+getBriefsByDate(date: string): Promise<{
+  date: string;
+  morning: Brief | null;
+  afternoon: Brief | null;
+  evening: Brief | null;
+}>
+```
+
+Always returns all three slots, filling missing ones with `null`.
+
+### `generateBrief(input)`
+
+Throws `AppError(501)` until the agent runner is wired up. Signature takes `{ date, kind }` and will return `{ briefId, invocationId }` once Track C lands.
+
+### `updateBrief(id, input)`
+
+Partial update of `title`, `body`, `references` (each accepts `null` to clear) and `status`. Stamps `updatedAt`.
+
+### `deleteBrief(id)`
+
+Hard delete. Throws `AppError(404)` if the id is unknown.
+
+### `upsertStubBrief(date, kind)`
+
+Internal helper for Track C: returns the existing `(date, kind)` row if one exists, otherwise inserts a `pending` stub so the runner has a row to update as it streams output. Not exposed via the REST API.

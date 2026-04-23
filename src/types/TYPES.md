@@ -25,6 +25,9 @@
   - [Chat Schemas](#chat-schemas)
   - [Conversation Schemas](#conversation-schemas)
   - [Invocation Schemas](#invocation-schemas)
+  - [Profile Schemas](#profile-schemas)
+  - [Context Group Schemas](#context-group-schemas)
+  - [Brief Schemas](#brief-schemas)
 - [Constants (Phase 1)](#constants-phase-1)
 - [Inferred TypeScript Types](#inferred-typescript-types)
 
@@ -450,6 +453,132 @@ Query schema for `GET /api/chat/sessions/:id/messages`.
 
 Query schema for `GET /api/invocations`.
 
+### Profile Schemas
+
+#### `UpdateProfileSectionSchema`
+
+```ts
+{
+  summary?: string | null,
+  sortOrder?: number (int),
+}
+```
+
+Body for `PATCH /api/profile/sections/:sectionId`. `null` explicitly clears `summary`.
+
+#### `AddProfileEntrySchema`
+
+```ts
+{
+  label: string (min 1),
+  detail?: string | null,
+  confidence?: 'observed' | 'inferred' | 'stated',
+  source?: string | null,
+  sortOrder?: number (int),
+}
+```
+
+Body for `POST /api/profile/sections/:sectionId/entries`. `confidence` defaults to `observed` in the service.
+
+#### `UpdateProfileEntrySchema`
+
+```ts
+{
+  label?: string (min 1),
+  detail?: string | null,
+  confidence?: 'observed' | 'inferred' | 'stated',
+  source?: string | null,
+  sortOrder?: number (int),
+}
+```
+
+Body for `PATCH /api/profile/entries/:entryId`.
+
+### Context Group Schemas
+
+#### `CreatePinnedContextSchema`
+
+```ts
+{
+  contextType: string (min 1),
+  contextId?: string | null,
+  label: string (min 1),
+  icon: string (min 1),
+  typeName: string (min 1),
+  payload?: string | null,   // JSON blob
+  sortOrder?: number (int),
+}
+```
+
+Body for `POST /api/pinned-contexts`.
+
+#### `CreateContextGroupSchema`
+
+```ts
+{
+  name: string (min 1),
+  icon?: string (min 1),
+  summary?: string | null,
+  members?: NewContextRef[],
+}
+```
+
+Body for `POST /api/context-groups`. A `NewContextRef` matches `CreatePinnedContextSchema`.
+
+#### `UpdateContextGroupSchema`
+
+```ts
+{
+  name?: string (min 1),
+  icon?: string (min 1),
+  summary?: string | null,
+  sortOrder?: number (int),
+}
+```
+
+Body for `PATCH /api/context-groups/:id`.
+
+#### `AddContextGroupMemberSchema`
+
+Same shape as `CreatePinnedContextSchema`. Body for `POST /api/context-groups/:id/members`.
+
+### Brief Schemas
+
+#### `ListBriefsQuerySchema`
+
+```ts
+{
+  from: string (YYYY-MM-DD),
+  to:   string (YYYY-MM-DD),
+}
+```
+
+Query for `GET /api/briefs`. Both dates are required; service throws `400` if `from > to`.
+
+#### `GenerateBriefSchema`
+
+```ts
+{
+  date: string (YYYY-MM-DD),
+  kind: 'morning' | 'afternoon' | 'evening',
+}
+```
+
+Body for `POST /api/briefs/generate`.
+
+#### `UpdateBriefSchema`
+
+```ts
+{
+  title?:      string | null,
+  body?:       string | null,
+  references?: string | null,   // JSON blob
+  status?:     'pending' | 'generating' | 'ready' | 'error',
+}
+```
+
+Body for `PATCH /api/briefs/:id`. Passing `null` explicitly clears the nullable fields.
+
 ---
 
 ## Constants (Phase 1)
@@ -469,6 +598,30 @@ const INVOCATION_STATUSES = ['running', 'complete', 'error', 'timeout', 'cancell
 ```
 
 Source of truth for the `agent_invocations.status` enum.
+
+### `PROFILE_CONFIDENCE`
+
+```ts
+const PROFILE_CONFIDENCE = ['observed', 'inferred', 'stated'] as const;
+```
+
+Source of truth for the `profile_entries.confidence` enum.
+
+### `BRIEF_KINDS`
+
+```ts
+const BRIEF_KINDS = ['morning', 'afternoon', 'evening'] as const;
+```
+
+Source of truth for the `briefs.kind` enum.
+
+### `BRIEF_STATUSES`
+
+```ts
+const BRIEF_STATUSES = ['pending', 'generating', 'ready', 'error'] as const;
+```
+
+Source of truth for the `briefs.status` enum.
 
 ---
 
@@ -504,3 +657,13 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `ListSessionsQuery` | `ListSessionsQuerySchema` |
 | `ListMessagesQuery` | `ListMessagesQuerySchema` |
 | `ListInvocationsQuery` | `ListInvocationsQuerySchema` |
+| `UpdateProfileSectionInput` | `UpdateProfileSectionSchema` |
+| `AddProfileEntryInput` | `AddProfileEntrySchema` |
+| `UpdateProfileEntryInput` | `UpdateProfileEntrySchema` |
+| `CreatePinnedContextInput` | `CreatePinnedContextSchema` |
+| `CreateContextGroupInput` | `CreateContextGroupSchema` |
+| `UpdateContextGroupInput` | `UpdateContextGroupSchema` |
+| `AddContextGroupMemberInput` | `AddContextGroupMemberSchema` |
+| `ListBriefsQuery` | `ListBriefsQuerySchema` |
+| `GenerateBriefInput` | `GenerateBriefSchema` |
+| `UpdateBriefInput` | `UpdateBriefSchema` |

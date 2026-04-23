@@ -18,6 +18,10 @@
 - [Chat](#chat)
 - [Conversations](#conversations)
 - [Invocations](#invocations)
+- [Profile](#profile)
+- [Pinned Contexts](#pinned-contexts)
+- [Context Groups](#context-groups)
+- [Briefings](#briefings)
 - [Error Handling](#error-handling)
 
 ---
@@ -270,6 +274,85 @@ Read-only introspection over `agent_invocations`. Used by the debugging UI and, 
 - `status` is one of `running \| complete \| error \| timeout \| cancelled`.
 - `since` is an ISO timestamp filter on `started_at`.
 - `toolCalls` is populated starting in Phase 2; Phase 1 invocations will return an empty array.
+
+---
+
+## Profile
+
+Long-running structured picture of the user. Seeded with six fixed sections (`overview`, `traits`, `habits`, `places`, `activities`, `purpose`) at install; entries under a section are fully CRUD.
+
+| Method | Path | Description | Body / Query | Response |
+|--------|------|-------------|-------------|----------|
+| `GET` | `/api/profile` | Full profile (all sections with their entries) | — | `{ sections: (ProfileSection & { entries: ProfileEntry[] })[] }` |
+| `GET` | `/api/profile/sections/:sectionId` | Single section with entries | — | `ProfileSection & { entries: ProfileEntry[] }` |
+| `PATCH` | `/api/profile/sections/:sectionId` | Update section summary | `{ summary?: string \| null, sortOrder? }` | `ProfileSection` |
+| `POST` | `/api/profile/sections/:sectionId/entries` | Add an entry to a section | `{ label, detail?, confidence?, source?, sortOrder? }` | `201 ProfileEntry` |
+| `PATCH` | `/api/profile/entries/:entryId` | Update an entry | `{ label?, detail?, confidence?, source?, sortOrder? }` | `ProfileEntry` |
+| `DELETE` | `/api/profile/entries/:entryId` | Remove an entry | — | `204` |
+
+**Notes:**
+- `confidence` is one of `observed \| inferred \| stated`, default `observed` on create.
+- Passing `summary: null`, `detail: null`, or `source: null` on PATCH explicitly clears the field.
+- `GET /api/profile` is the preferred read — the Profile view always renders every section together, so one round trip beats six.
+- Sections are not user-creatable; the fixed six are seeded by `npm run seed`.
+
+---
+
+## Pinned Contexts
+
+Flat list of chat-context refs pinned by the user (iOS `ChatContextStore` pinned set). Each row snapshots `(label, icon, typeName)` so the UI renders without resolving the ref.
+
+| Method | Path | Description | Body | Response |
+|--------|------|-------------|------|----------|
+| `GET` | `/api/pinned-contexts` | List pinned contexts | — | `PinnedContext[]` |
+| `POST` | `/api/pinned-contexts` | Pin a new context | `{ contextType, contextId?, label, icon, typeName, payload?, sortOrder? }` | `201 PinnedContext` |
+| `DELETE` | `/api/pinned-contexts/:id` | Unpin | — | `204` |
+
+**Notes:**
+- `payload` is a free-form JSON string (e.g. `{"date":"2026-04-23","mode":"week"}` for a schedule context) that captures fields not encoded in `(contextType, contextId)`.
+- No DB-level uniqueness on `(contextType, contextId, payload)`; deduplication is the client's responsibility.
+
+---
+
+## Context Groups
+
+Named bundles of chat-context refs. Opening a group in the floating chat loads every member as an active context.
+
+| Method | Path | Description | Body | Response |
+|--------|------|-------------|------|----------|
+| `GET` | `/api/context-groups` | List groups with members | — | `(ContextGroup & { members: ContextGroupMember[] })[]` |
+| `GET` | `/api/context-groups/:id` | Get one group with members | — | `ContextGroup & { members: ContextGroupMember[] }` |
+| `POST` | `/api/context-groups` | Create a group (optionally with initial members) | `{ name, icon?, summary?, members?: NewContextRef[] }` | `201 ContextGroup & { members }` |
+| `PATCH` | `/api/context-groups/:id` | Update editable fields | `{ name?, icon?, summary?, sortOrder? }` | `ContextGroup` |
+| `DELETE` | `/api/context-groups/:id` | Delete group (cascades members) | — | `204` |
+| `POST` | `/api/context-groups/:id/members` | Add a member to a group | `{ contextType, contextId?, label, icon, typeName, payload?, sortOrder? }` | `201 ContextGroupMember` |
+| `DELETE` | `/api/context-groups/:groupId/members/:memberId` | Remove a member | — | `204` |
+
+**Notes:**
+- Member shape mirrors `PinnedContext` (snapshot `label`/`icon`/`typeName` + optional `payload`).
+- Members use POST/DELETE rather than PATCH — a member is either present or not; reordering would be added later as a `sortOrder` PATCH when the UI needs it.
+- `icon` defaults to `point.3.connected.trianglepath.dotted` on create.
+
+---
+
+## Briefings
+
+Morning / afternoon / evening briefings per day. At most one brief per `(date, kind)` — enforced by a unique index.
+
+| Method | Path | Description | Body / Query | Response |
+|--------|------|-------------|-------------|----------|
+| `GET` | `/api/briefs` | List briefs within a date range | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both required) | `Brief[]` ordered by `date desc` then `kind` (morning → afternoon → evening) |
+| `GET` | `/api/briefs/by-date/:date` | Get all three briefs for a single date | — | `{ date, morning: Brief \| null, afternoon: Brief \| null, evening: Brief \| null }` |
+| `GET` | `/api/briefs/:id` | Get a single brief | — | `Brief` |
+| `POST` | `/api/briefs/generate` | Kick agent brief generation | `{ date, kind }` | `501` until Track C (agent runner) ships |
+| `PATCH` | `/api/briefs/:id` | Edit a brief (manual authoring) | `{ title?, body?, status?, references? }` | `Brief` |
+| `DELETE` | `/api/briefs/:id` | Delete a brief | — | `204` |
+
+**Notes:**
+- `kind` is one of `morning \| afternoon \| evening`; `status` is one of `pending \| generating \| ready \| error`.
+- `references` is a JSON-encoded string: `{tasks: string[], slots: string[], initiatives: string[]}`.
+- `POST /generate` currently returns `501` with a clear message. Once Track C lands it will enqueue an agent run and return `202 { briefId, invocationId }` — consumers already holding the id can poll `GET /api/briefs/:id`.
+- `PATCH` accepts `title: null` / `body: null` / `references: null` to explicitly clear those fields.
 
 ---
 

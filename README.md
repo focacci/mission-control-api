@@ -93,7 +93,7 @@ Migrations are stored in `drizzle/migrations/`.
 npm run seed
 ```
 
-One-time import: scans your vault for goal, initiative, and task markdown files and inserts them into the database.
+One-time import: scans your vault for goal, initiative, and task markdown files and inserts them into the database. Also seeds the six fixed profile sections (`overview`, `traits`, `habits`, `places`, `activities`, `purpose`) — required for `/api/profile` to work.
 
 Alternatively, use the API endpoint after the server is running:
 
@@ -192,6 +192,10 @@ Goals have a **focus level** that controls weekly schedule allocation:
 | Chat | `/api/chat`, `/api/chat/stream` (SSE) | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Conversations | `/api/chat/sessions` (+ `/activity`) | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Invocations | `/api/invocations` (+ `/:id/cancel`) | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Profile | `/api/profile` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Pinned Contexts | `/api/pinned-contexts` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Context Groups | `/api/context-groups` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Briefings | `/api/briefs` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 
 ### Quick examples
 
