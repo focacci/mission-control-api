@@ -296,11 +296,14 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
 
       // Import requirements
       const reqSection = extractSection(body, 'Requirements');
+      const reqIds: string[] = [];
       if (reqSection) {
         const reqs = parseCheckboxes(reqSection);
         for (let i = 0; i < reqs.length; i++) {
+          const reqId = nanoid();
+          reqIds.push(reqId);
           await db.insert(taskRequirements).values({
-            id: nanoid(),
+            id: reqId,
             taskId: id,
             description: reqs[i].description,
             completed: reqs[i].completed,
@@ -309,10 +312,24 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
         }
       }
 
-      // Note: task-level Test Plan sections are no longer imported —
-      // tests live under requirements now and should be added per-requirement
-      // via the requirements API.
-      void requirementTests;
+      // The Obsidian vault stores tests at the task level ("Test Plan"),
+      // but the refactored schema puts tests under requirements. Attach all
+      // Test Plan items to the first requirement as the closest-fit bucket.
+      // If the task has no requirements, the tests are skipped.
+      const testSection = extractSection(body, 'Test Plan');
+      if (testSection && reqIds.length > 0) {
+        const tests = parseCheckboxes(testSection);
+        const anchorReqId = reqIds[0];
+        for (let i = 0; i < tests.length; i++) {
+          await db.insert(requirementTests).values({
+            id: nanoid(),
+            requirementId: anchorReqId,
+            description: tests[i].description,
+            passed: tests[i].completed,
+            sortOrder: i,
+          });
+        }
+      }
 
       console.log(`  ✓ Task: ${displayName}`);
       count++;
