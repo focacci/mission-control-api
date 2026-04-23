@@ -11,6 +11,10 @@ import * as boardService from '../services/board.service.js';
 import * as profileService from '../services/profile.service.js';
 import * as contextGroupsService from '../services/contextGroups.service.js';
 import * as briefsService from '../services/briefs.service.js';
+import * as agentsService from '../services/agents.service.js';
+import * as conversationsService from '../services/conversations.service.js';
+import * as invocationsService from '../services/invocations.service.js';
+import { chatService } from '../services/chat.service.js';
 
 // ---------------------------------------------------------------------------
 // Coarse-grained tool definitions (one tool per domain aggregate).
@@ -307,6 +311,104 @@ const TOOLS = [
           enum: ['pending', 'generating', 'ready', 'error'],
           description: 'Status (update only).',
         },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'agents',
+    description:
+      "Manage openclaw-backed agents (the entities that run chat / brief / slot invocations). DB is the source of truth; create/delete also write through to the openclaw CLI. Actions: list, get, create, update, delete, repair. `update` only touches systemPrompt (pass null to clear). `repair` re-creates any DB-tracked agent that has gone missing from the CLI.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'get', 'create', 'update', 'delete', 'repair'],
+          description: 'Operation to perform.',
+        },
+        id: { type: 'string', description: 'Agent id (required for get/update/delete).' },
+        name: { type: 'string', description: 'Agent display name (create).' },
+        model: { type: 'string', description: 'Model id (create).' },
+        systemPrompt: {
+          type: 'string',
+          description: 'System prompt / SOUL.md body. Pass null in update to clear.',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'chat',
+    description:
+      "Chat sessions and messages. `send_message` is the only write path and proxies through the agent (creates an invocation, appends user + assistant messages). Everything else is reads and deletes. Actions: list_sessions, get_session, create_session, list_messages, delete_session, send_message.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: [
+            'list_sessions', 'get_session', 'create_session',
+            'list_messages', 'delete_session', 'send_message',
+          ],
+          description: 'Operation to perform.',
+        },
+        id: { type: 'string', description: 'Session id (get_session/list_messages/delete_session).' },
+        agentId: {
+          type: 'string',
+          description: 'Agent id filter (list_sessions) or target (create_session/send_message).',
+        },
+        contextType: {
+          type: 'string',
+          description: 'Context type filter (list_sessions) or snapshot (create_session).',
+        },
+        contextId: { type: 'string', description: 'Context id filter or snapshot.' },
+        title: { type: 'string', description: 'Session title (create_session).' },
+        limit: { type: 'number', description: 'Page size (list_sessions/list_messages).' },
+        before: { type: 'string', description: 'Message id pagination anchor (list_messages).' },
+        message: { type: 'string', description: 'Message body (send_message).' },
+        sessionId: { type: 'string', description: 'Session id (send_message).' },
+        context: {
+          type: 'object',
+          description: 'Chat context snapshot for send_message.',
+          properties: {
+            type: { type: 'string' },
+            id: { type: 'string' },
+            name: { type: 'string' },
+            emoji: { type: 'string' },
+            section: { type: 'string' },
+            date: { type: 'string' },
+          },
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'invocations',
+    description:
+      "Agent invocations (one per chat turn / brief run / slot). Read-only today; `cancel` returns 501 until the in-process runner (Track C) ships. Actions: list, get, cancel.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'get', 'cancel'],
+          description: 'Operation to perform.',
+        },
+        id: { type: 'string', description: 'Invocation id (get/cancel).' },
+        trigger: {
+          type: 'string',
+          enum: ['slot_start', 'brief', 'user_chat', 'manual'],
+          description: 'Trigger filter (list).',
+        },
+        status: {
+          type: 'string',
+          enum: ['running', 'complete', 'error', 'timeout', 'cancelled'],
+          description: 'Status filter (list).',
+        },
+        limit: { type: 'number', description: 'Page size (list).' },
+        since: { type: 'string', description: 'ISO timestamp — only invocations started at/after (list).' },
       },
       required: ['action'],
     },
@@ -704,6 +806,95 @@ async function dispatchBriefings(action: string, args: Args): Promise<unknown> {
   }
 }
 
+async function dispatchAgents(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'list':
+      return agentsService.listAgents();
+    case 'get':
+      return agentsService.getAgent(requireArg<string>(args, 'id'));
+    case 'create':
+      return agentsService.createAgent({
+        name: requireArg<string>(args, 'name'),
+        model: requireArg<string>(args, 'model'),
+        systemPrompt: optArg<string>(args, 'systemPrompt'),
+      });
+    case 'update':
+      return agentsService.updateAgent(requireArg<string>(args, 'id'), {
+        systemPrompt: optArg<string | null>(args, 'systemPrompt'),
+      });
+    case 'delete':
+      await agentsService.deleteAgent(requireArg<string>(args, 'id'));
+      return { deleted: true };
+    case 'repair':
+      return agentsService.repairAgents();
+    default:
+      throw new AppError(400, `Unknown agents action: ${action}`);
+  }
+}
+
+async function dispatchChat(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'list_sessions':
+      return conversationsService.listSessions({
+        agentId: optArg<string>(args, 'agentId'),
+        contextType: optArg<string>(args, 'contextType'),
+        contextId: optArg<string>(args, 'contextId'),
+        limit: optArg<number>(args, 'limit'),
+      });
+    case 'get_session': {
+      const id = requireArg<string>(args, 'id');
+      const session = await conversationsService.getSession(id);
+      const messageCount = await conversationsService.getMessageCount(id);
+      return { ...session, messageCount };
+    }
+    case 'create_session':
+      return conversationsService.createSession({
+        agentId: requireArg<string>(args, 'agentId'),
+        contextType: optArg<string | null>(args, 'contextType'),
+        contextId: optArg<string | null>(args, 'contextId'),
+        title: optArg<string | null>(args, 'title'),
+      });
+    case 'list_messages':
+      return conversationsService.listMessages(requireArg<string>(args, 'id'), {
+        limit: optArg<number>(args, 'limit'),
+        before: optArg<string>(args, 'before'),
+      });
+    case 'delete_session':
+      await conversationsService.deleteSession(requireArg<string>(args, 'id'));
+      return { deleted: true };
+    case 'send_message':
+      return chatService.sendMessage({
+        message: requireArg<string>(args, 'message'),
+        agentId: optArg<string>(args, 'agentId'),
+        context: optArg<any>(args, 'context'),
+        sessionId: optArg<string>(args, 'sessionId'),
+      });
+    default:
+      throw new AppError(400, `Unknown chat action: ${action}`);
+  }
+}
+
+async function dispatchInvocations(action: string, args: Args): Promise<unknown> {
+  switch (action) {
+    case 'list':
+      return invocationsService.listInvocations({
+        trigger: optArg<any>(args, 'trigger'),
+        status: optArg<any>(args, 'status'),
+        limit: optArg<number>(args, 'limit'),
+        since: optArg<string>(args, 'since'),
+      });
+    case 'get':
+      return invocationsService.getInvocation(requireArg<string>(args, 'id'));
+    case 'cancel':
+      throw new AppError(
+        501,
+        'invocations.cancel requires the in-process agent runner (Track C) — not yet implemented.',
+      );
+    default:
+      throw new AppError(400, `Unknown invocations action: ${action}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Top-level dispatch
 // ---------------------------------------------------------------------------
@@ -734,6 +925,12 @@ async function dispatch(name: string, args: Args): Promise<unknown> {
       return dispatchContextGroups(requireArg<string>(args, 'action'), args);
     case 'briefings':
       return dispatchBriefings(requireArg<string>(args, 'action'), args);
+    case 'agents':
+      return dispatchAgents(requireArg<string>(args, 'action'), args);
+    case 'chat':
+      return dispatchChat(requireArg<string>(args, 'action'), args);
+    case 'invocations':
+      return dispatchInvocations(requireArg<string>(args, 'action'), args);
     default:
       throw new AppError(404, `Unknown tool: ${name}`);
   }
