@@ -75,6 +75,7 @@
   - [`getMessageCount`](#getmessagecountsessionid)
 - [Invocations Service](#invocations-service)
   - [`startInvocation`](#startinvocationinput)
+  - [`setInvocationRunId`](#setinvocationrunidid-gatewayrunid)
   - [`completeInvocation`](#completeinvocationid-input)
   - [`failInvocation`](#failinvocationid-input)
   - [`listInvocations`](#listinvocationsopts)
@@ -83,6 +84,7 @@
 - [Tool Calls Service](#tool-calls-service)
   - [`recordToolCallStart`](#recordtoolcallstartinput)
   - [`recordToolCallResult`](#recordtoolcallresultid-input)
+  - [`backfillToolCallMessageIds`](#backfilltoolcallmessageidsinvocationid-messageid)
 - [Profile Service](#profile-service)
   - [`getProfile`](#getprofile)
   - [`getSection`](#getsectionsectionid)
@@ -700,10 +702,19 @@ startInvocation(input: {
   agentId: string;
   sessionId: string;
   model: string;
+  gatewayRunId?: string | null;
 }): Promise<AgentInvocation>
 ```
 
-Inserts a row with `status='running'`, `startedAt = now()`, `tokensIn = 0`, `tokensOut = 0`.
+Inserts a row with `status='running'`, `startedAt = now()`, `tokensIn = 0`, `tokensOut = 0`. `gatewayRunId` is typically left unset here — the runner populates it via `setInvocationRunId` once the `agent` RPC returns.
+
+### `setInvocationRunId(id, gatewayRunId)`
+
+```ts
+setInvocationRunId(id: string, gatewayRunId: string): Promise<void>
+```
+
+Attaches the OpenClaw gateway `runId` to an already-started invocation. Called by the Phase 2 runner immediately after the `agent` RPC resolves, so `/api/invocations/:id` readers can correlate with gateway logs mid-turn.
 
 ### `completeInvocation(id, input)`
 
@@ -759,21 +770,21 @@ Sums `tokensIn + tokensOut` across all invocations started since the current UTC
 
 ## Tool Calls Service
 
-Records Anthropic-format tool calls as they start and resolve. Populated by the Phase 2 runner; stubs exist in Phase 1 so downstream code can be wired up before the runner lands.
+Records Anthropic-format tool calls as they start and resolve. Populated by the Phase 2 runner from the gateway's tool-stream events.
 
 ### `recordToolCallStart(input)`
 
 ```ts
 recordToolCallStart(input: {
-  id: string;               // Anthropic tool_use_id
-  messageId: string;        // assistant message that issued the tool_use block
+  id: string;                      // Anthropic tool_use_id
+  messageId: string | null;        // assistant message; may be null if tool.start precedes the block's text
   invocationId: string;
   toolName: string;
   input: unknown;
 }): Promise<ToolCallLog>
 ```
 
-Inserts a row with `startedAt = now()`, `output = null`, `isError = false`. JSON-encodes `input`.
+Inserts a row with `startedAt = now()`, `output = null`, `isError = false`, `summary = null`. JSON-encodes `input`. `messageId` is nullable because the gateway can emit `tool.start` before any assistant text for the block — the runner backfills on `message_complete` via `backfillToolCallMessageIds`.
 
 ### `recordToolCallResult(id, input)`
 
@@ -782,10 +793,19 @@ recordToolCallResult(id: string, input: {
   output: unknown;
   isError: boolean;
   durationMs: number;
+  summary?: string | null;
 }): Promise<ToolCallLog>
 ```
 
-Sets `output` (JSON-encoded), `isError`, `endedAt = now()`, and `durationMs`. Throws `notFound` if the tool-call row doesn't exist.
+Sets `output` (JSON-encoded), `isError`, `endedAt = now()`, `durationMs`, and the optional presenter-computed `summary`. Throws `notFound` if the tool-call row doesn't exist.
+
+### `backfillToolCallMessageIds(invocationId, messageId)`
+
+```ts
+backfillToolCallMessageIds(invocationId: string, messageId: string): Promise<void>
+```
+
+Attaches `messageId` to every tool_call_log row for `invocationId` whose `messageId` is still null. The runner calls this on every `message_complete` to resolve the plan §6.7 edge case where `tool.start` arrives before the assistant block's text.
 
 ---
 

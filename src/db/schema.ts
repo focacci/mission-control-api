@@ -196,6 +196,7 @@ export const agentInvocations = sqliteTable('agent_invocations', {
   error: text('error'),
   tokensIn: integer('tokens_in').notNull().default(0),
   tokensOut: integer('tokens_out').notNull().default(0),
+  gatewayRunId: text('gateway_run_id'),
 });
 
 export const chatMessages = sqliteTable('chat_messages', {
@@ -295,14 +296,13 @@ export const briefs = sqliteTable(
 
 export const toolCallLog = sqliteTable('tool_call_log', {
   id: text('id').primaryKey(),
-  messageId: text('message_id')
-    .notNull()
-    .references(() => chatMessages.id, { onDelete: 'cascade' }),
+  messageId: text('message_id').references(() => chatMessages.id, { onDelete: 'cascade' }),
   invocationId: text('invocation_id').notNull(),
   toolName: text('tool_name').notNull(),
   input: text('input').notNull(),
   output: text('output'),
   isError: integer('is_error', { mode: 'boolean' }).notNull().default(false),
+  summary: text('summary'),
   startedAt: text('started_at').notNull(),
   endedAt: text('ended_at'),
   durationMs: integer('duration_ms'),

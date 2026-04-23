@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { toolCallLog } from '../db/schema.js';
 import { notFound, now } from '../types/index.types.js';
@@ -7,7 +7,12 @@ export type ToolCallLog = typeof toolCallLog.$inferSelect;
 
 export interface RecordToolCallStartInput {
   id: string;
-  messageId: string;
+  /**
+   * The assistant `chat_messages` row that emitted this tool call. May be
+   * null when `tool.start` arrives before any assistant text in the block;
+   * backfill via `backfillToolCallMessageIds` once the message row exists.
+   */
+  messageId: string | null;
   invocationId: string;
   toolName: string;
   input: unknown;
@@ -17,6 +22,7 @@ export interface RecordToolCallResultInput {
   output: unknown;
   isError: boolean;
   durationMs: number;
+  summary?: string | null;
 }
 
 export async function recordToolCallStart(input: RecordToolCallStartInput): Promise<ToolCallLog> {
@@ -28,6 +34,7 @@ export async function recordToolCallStart(input: RecordToolCallStartInput): Prom
     input: JSON.stringify(input.input ?? null),
     output: null,
     isError: false,
+    summary: null,
     startedAt: now(),
     endedAt: null,
     durationMs: null,
@@ -48,6 +55,7 @@ export async function recordToolCallResult(
     .set({
       output: JSON.stringify(input.output ?? null),
       isError: input.isError,
+      summary: input.summary ?? null,
       endedAt: now(),
       durationMs: input.durationMs,
     })
@@ -55,4 +63,21 @@ export async function recordToolCallResult(
 
   const [updated] = await db.select().from(toolCallLog).where(eq(toolCallLog.id, id));
   return updated;
+}
+
+/**
+ * Attach `messageId` to any tool_call_log rows for `invocationId` that were
+ * recorded before the assistant block's `chat_messages` row existed. Called
+ * by the runner on `message_complete`.
+ */
+export async function backfillToolCallMessageIds(
+  invocationId: string,
+  messageId: string,
+): Promise<void> {
+  await db
+    .update(toolCallLog)
+    .set({ messageId })
+    .where(
+      and(eq(toolCallLog.invocationId, invocationId), isNull(toolCallLog.messageId)),
+    );
 }

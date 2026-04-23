@@ -264,6 +264,7 @@ One row per agent run (chat turn, scheduled slot-start, brief generation, manual
 | `error` | `text` nullable | error message on failure |
 | `tokens_in` | `integer` default 0 | prompt tokens billed to this invocation |
 | `tokens_out` | `integer` default 0 | completion tokens |
+| `gateway_run_id` | `text` nullable | OpenClaw gateway `runId` returned by the `agent` RPC; correlates our row with gateway logs/traces |
 
 ---
 
@@ -285,17 +286,18 @@ Ordered turns within a session. Assistant messages link back to the `agent_invoc
 
 ## `tool_call_log`
 
-Structured record of every tool the model called during an invocation (primarily Intella MCP tools). `id` uses Anthropic's `tool_use_id` so it's stable across correlating events. Populated in Phase 2 when the in-process runner replaces the openclaw subprocess.
+Structured record of every tool the model called during an invocation (primarily Intella MCP tools). `id` uses Anthropic's `tool_use_id` so it's stable across correlating events. Populated by the Phase 2 in-process runner from the gateway's tool-stream events.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text` PK | Anthropic tool_use_id |
-| `message_id` | `text` FK → `chat_messages.id` | `ON DELETE CASCADE` |
+| `message_id` | `text` **nullable** FK → `chat_messages.id` | `ON DELETE CASCADE`. Nullable because `tool.start` can arrive before the assistant block's row exists; the runner backfills this on the next `message_complete`. |
 | `invocation_id` | `text` | denormalized for fast per-invocation queries |
 | `tool_name` | `text` | e.g. `board`, `tasks.complete` |
 | `input` | `text` | JSON-encoded call arguments |
 | `output` | `text` nullable | JSON-encoded tool result; null until resolved |
 | `is_error` | `integer` boolean | default `false` |
+| `summary` | `text` nullable | human-readable one-liner from the presenter (populated on result); drives the collapsed tool-row label in the UI |
 | `started_at` | `text` | ISO timestamp |
 | `ended_at` | `text` nullable | ISO timestamp when the result arrived |
 | `duration_ms` | `integer` nullable | populated on resolution |

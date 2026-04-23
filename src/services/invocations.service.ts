@@ -19,6 +19,7 @@ export interface StartInvocationInput {
   agentId: string;
   sessionId: string;
   model: string;
+  gatewayRunId?: string | null;
 }
 
 export interface CompleteInvocationInput {
@@ -54,9 +55,25 @@ export async function startInvocation(input: StartInvocationInput): Promise<Agen
     error: null,
     tokensIn: 0,
     tokensOut: 0,
+    gatewayRunId: input.gatewayRunId ?? null,
   };
   await db.insert(agentInvocations).values(row);
   return row;
+}
+
+/**
+ * Attach the gateway `runId` returned by the `agent` RPC to an already-started
+ * invocation. The runner calls this immediately after the RPC resolves so the
+ * correlation is available to `/api/invocations/:id` readers even mid-turn.
+ */
+export async function setInvocationRunId(
+  id: string,
+  gatewayRunId: string,
+): Promise<void> {
+  await db
+    .update(agentInvocations)
+    .set({ gatewayRunId })
+    .where(eq(agentInvocations.id, id));
 }
 
 export async function completeInvocation(

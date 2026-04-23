@@ -15,6 +15,13 @@
       "when": 1776976486035,
       "tag": "0001_yielding_demogoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1776984429393,
+      "tag": "0002_ordinary_true_believers",
+      "breakpoints": true
     }
   ]
 }
