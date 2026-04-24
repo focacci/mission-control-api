@@ -54,6 +54,10 @@ OPENCLAW_GATEWAY_TOKEN=<shared secret from ~/.openclaw/openclaw.json>
 
 `DB_PATH` is created automatically on first run if it doesn't exist. The API connects to the OpenClaw gateway on boot and reconnects automatically if the socket drops; if the gateway is unreachable, `/health` will report `gateway.connected: false` until it recovers.
 
+### Gateway device identity
+
+On first boot the API generates an Ed25519 keypair at `data/device-identity.json` and uses it to sign a v3 device-auth payload on every `connect` frame. The gateway auto-pairs the device and issues a scoped device token (persisted to `data/gateway-device-token.json`), which unlocks the scoped `agent` / `sessions.*` RPCs. Both files are machine-local, gitignored, and should not be shared. Delete them to force a fresh pairing.
+
 ---
 
 ## Run
@@ -178,7 +182,7 @@ Every chat turn is persisted. The DB is the source of truth for conversations, n
 - `agent_invocations` tracks the lifecycle of every agent run (chat, scheduled slot-start, brief generation).
 - `tool_call_log` captures every MCP tool the model calls, with a one-line `summary` for the collapsed-row UI.
 
-**Phase 2 — in-process agent loop (shipped).** The `openclaw agent` subprocess has been replaced by an in-process Anthropic SDK loop ([src/agent/](src/agent/)). Chat turns run through `handleChatTurn → runner.run`, which streams `text_delta` / `tool_use` / `tool_result` / `message_complete` / `done` events. `POST /api/chat/stream` exposes those events over Server-Sent Events; `POST /api/chat` buffers them into a single reply for legacy clients. `POST /api/invocations/:id/cancel` aborts a running turn; `GET /api/chat/sessions/:id/activity` returns the interleaved message + tool-call timeline for history replay.
+**Phase 2 — in-process agent loop (in progress).** The `openclaw agent` subprocess has been replaced by an in-process OpenClaw Gateway WebSocket client ([src/agent/](src/agent/)). Chat turns run through `handleChatTurn → runner.run`, which subscribes to gateway `lifecycle` / `assistant` / `tool` streams and emits `text_delta` / `tool_use` / `tool_result` / `message_complete` / `done` events. `POST /api/chat` now buffers those events into a single reply for legacy clients. `POST /api/chat/stream` (SSE), `POST /api/invocations/:id/cancel`, and `GET /api/chat/sessions/:id/activity` land in subsequent slices.
 
 See [CONTROL_LAYER_PLAN.md](CONTROL_LAYER_PLAN.md), [CONTROL_LAYER_PHASE_2_UI.md](CONTROL_LAYER_PHASE_2_UI.md), and [PHASE_2_API_PLAN.md](PHASE_2_API_PLAN.md) for full design context.
 

@@ -5,10 +5,12 @@ import {
   type ChatSession,
 } from '../services/conversations.service.js';
 import {
+  getInvocation,
   startInvocation,
   type AgentInvocation,
 } from '../services/invocations.service.js';
-import type { AgentEvent } from './events.js';
+import { AppError } from '../types/index.types.js';
+import type { AgentEvent, AgentEventErrorCode } from './events.js';
 import { run, type RunnerOptions } from './runner.js';
 
 const DEFAULT_AGENT_ID = 'intella';
@@ -125,5 +127,65 @@ export async function handleChatTurn(
     sessionId: session.id,
     agentId,
     invocationId: invocation.id,
+  };
+}
+
+export interface BufferedChatTurnResult extends HandleChatTurnResult {
+  reply: string;
+}
+
+const ERROR_CODE_STATUS: Record<AgentEventErrorCode, number> = {
+  gateway_unreachable: 503,
+  daily_cap_exceeded: 429,
+  timeout: 504,
+  cancelled: 499,
+  transport: 503,
+  agent: 500,
+};
+
+/**
+ * Buffered wrapper around `handleChatTurn`. Captures fatal error events and
+ * rethrows them as `AppError` with an appropriate status; on success, reads
+ * back the finalized assistant messages for this invocation and returns them
+ * joined as `reply`. Used by `POST /api/chat` and the MCP `chat.send_message`
+ * bridge so non-streaming callers get the same shape they had in Phase 1.
+ */
+export async function runBufferedChatTurn(
+  params: Omit<HandleChatTurnParams, 'onEvent'>,
+  runnerOpts: RunnerOptions = {},
+): Promise<BufferedChatTurnResult> {
+  let fatal: { message: string; code?: AgentEventErrorCode } | null = null;
+  const turn = await handleChatTurn(
+    {
+      ...params,
+      onEvent: (e) => {
+        if (e.type === 'error' && e.fatal && !fatal) {
+          fatal = { message: e.error, code: e.code };
+        }
+      },
+    },
+    runnerOpts,
+  );
+
+  if (fatal) {
+    const err = fatal as { message: string; code?: AgentEventErrorCode };
+    const status = err.code ? ERROR_CODE_STATUS[err.code] ?? 500 : 500;
+    throw new AppError(status, err.message, {
+      code: err.code,
+      invocationId: turn.invocationId,
+      sessionId: turn.sessionId,
+    });
+  }
+
+  const detail = await getInvocation(turn.invocationId);
+  const reply = detail.messages
+    .filter((m) => m.role === 'assistant')
+    .map((m) => m.content ?? '')
+    .join('\n\n')
+    .trim();
+
+  return {
+    ...turn,
+    reply: reply || 'No response from agent.',
   };
 }

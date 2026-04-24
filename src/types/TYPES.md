@@ -410,7 +410,7 @@ Body schema for `POST /api/chat`. `agentId` defaults to `intella` at the service
 }
 ```
 
-Not exposed on a route in Phase 1 (sessions are created implicitly by the chat service) but kept for internal consumers and forthcoming admin endpoints.
+Not exposed on a route in Phase 1 (sessions are created implicitly by the chat orchestrator) but kept for internal consumers and forthcoming admin endpoints.
 
 #### `ListSessionsQuerySchema`
 

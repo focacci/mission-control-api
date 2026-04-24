@@ -20,7 +20,7 @@ import { contextGroupsRoutes } from './routes/contextGroups.routes.js';
 import { briefsRoutes } from './routes/briefs.routes.js';
 import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
-import { initGatewayClient } from './agent/gatewayClient.js';
+import { initGatewayClient, loadOrCreateDeviceIdentity } from './agent/gatewayClient.js';
 import path from 'node:path';
 
 const PORT = Number(process.env.PORT ?? 3737);
@@ -35,9 +35,16 @@ await app.register(cors, { origin: true });
 // ---------------------------------------------------------------------------
 const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL ?? 'ws://127.0.0.1:18789';
 const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+// Shared-token auth grants zero scopes on its own. Present a signed Ed25519
+// attestation on every connect so the gateway auto-pairs and issues a scoped
+// device token (persisted next to the keypair for subsequent reconnects).
+const deviceIdentity = loadOrCreateDeviceIdentity(
+  path.resolve(process.cwd(), 'data', 'device-identity.json'),
+);
 const gateway = initGatewayClient({
   url: gatewayUrl,
   token: gatewayToken,
+  deviceIdentity,
   deviceTokenStorePath: path.resolve(process.cwd(), 'data', 'gateway-device-token.json'),
   clientDisplayName: 'mission-control-api',
   logger: app.log as unknown as Console,

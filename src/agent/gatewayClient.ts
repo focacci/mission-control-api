@@ -1,8 +1,21 @@
 import { EventEmitter } from 'node:events';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  randomUUID,
+  sign as cryptoSign,
+} from 'node:crypto';
 import WebSocket, { type RawData } from 'ws';
+
+export interface DeviceIdentity {
+  deviceId: string;
+  publicKeyPem: string;
+  privateKeyPem: string;
+}
 
 export interface GatewayClientOptions {
   url: string;
@@ -12,6 +25,17 @@ export interface GatewayClientOptions {
   clientDisplayName?: string;
   clientVersion?: string;
   deviceTokenStorePath?: string;
+  /**
+   * Keypair used to sign the gateway `connect` challenge. Without an identity
+   * the shared token yields an unscoped session, so scoped RPCs (`agent`,
+   * `sessions.*`, …) will reject. Use `loadOrCreateDeviceIdentity` to mint
+   * and persist one under `data/`.
+   */
+  deviceIdentity?: DeviceIdentity;
+  /** `clientId` field sent in both `client` and the signed device payload. */
+  clientId?: string;
+  /** `mode` field sent in both `client` and the signed device payload. */
+  clientMode?: string;
   requestTimeoutMs?: number;
   initialBackoffMs?: number;
   maxBackoffMs?: number;
@@ -365,22 +389,65 @@ export class GatewayClient extends EventEmitter {
     if (this.connectReqId) return;
     const id = randomUUID();
     this.connectReqId = id;
+    const clientId = this.opts.clientId ?? 'gateway-client';
+    const clientMode = this.opts.clientMode ?? 'backend';
+    const role = 'operator';
+    const scopes = this.opts.scopes ?? ['operator.admin', 'operator.read', 'operator.write'];
+    const platform = process.platform;
+
     const auth: Record<string, string> = {};
+    // Shared token is always sent when available: it authenticates the
+    // connection, *and* the gateway embeds it into the signature payload as
+    // `signatureToken` (see openclaw `selectConnectAuth`). Stored device
+    // token, when present, lets the server skip re-pairing.
+    if (this.opts.token) auth.token = this.opts.token;
     if (this._deviceToken) auth.deviceToken = this._deviceToken;
-    else if (this.opts.token) auth.token = this.opts.token;
-    const params = {
+
+    // Build the signed device attestation when we have an identity. Matches
+    // openclaw's `buildDeviceAuthPayloadV3` canonical string and SPKI-stripped
+    // Ed25519 public key encoding. Without this, the gateway grants `[]`
+    // scopes on shared-token connects and rejects scoped RPCs.
+    const signedAtMs = Date.now();
+    const signatureToken = this.opts.token ?? this._deviceToken ?? '';
+    let device:
+      | { id: string; publicKey: string; signature: string; signedAt: number; nonce: string }
+      | undefined;
+    if (this.opts.deviceIdentity) {
+      const ident = this.opts.deviceIdentity;
+      const payload = buildDeviceAuthPayloadV3({
+        deviceId: ident.deviceId,
+        clientId,
+        clientMode,
+        role,
+        scopes,
+        signedAtMs,
+        token: signatureToken,
+        nonce: this.connectNonce,
+        platform,
+      });
+      device = {
+        id: ident.deviceId,
+        publicKey: publicKeyRawBase64UrlFromPem(ident.publicKeyPem),
+        signature: signDevicePayload(ident.privateKeyPem, payload),
+        signedAt: signedAtMs,
+        nonce: this.connectNonce,
+      };
+    }
+
+    const params: Record<string, unknown> = {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: 'gateway-client' as const,
+        id: clientId,
         displayName: this.opts.clientDisplayName ?? 'mission-control-api',
         version: this.opts.clientVersion ?? '1.0.0',
-        platform: process.platform,
-        mode: 'backend' as const,
+        platform,
+        mode: clientMode,
       },
-      role: 'operator',
-      scopes: this.opts.scopes ?? ['operator.admin', 'operator.read', 'operator.write'],
+      role,
+      scopes,
       ...(Object.keys(auth).length > 0 ? { auth } : {}),
+      ...(device ? { device } : {}),
     };
     const frame = { type: 'req' as const, id, method: 'connect', params };
     try {
@@ -512,4 +579,119 @@ export function initGatewayClient(opts: GatewayClientOptions): GatewayClient {
 
 export function resetGatewayClientForTests(): void {
   singleton = null;
+}
+
+// ---- Device identity (v3 connect signing) -------------------------------
+//
+// These helpers mirror openclaw's own device-auth implementation (see
+// `openclaw/dist/plugin-sdk/src/gateway/device-auth.d.ts` and
+// `infra/device-identity.d.ts`). We keep them in-process so mission-control
+// can present a signed Ed25519 attestation on `connect` — the only way the
+// gateway grants scoped access when `gateway.auth.mode = "token"`.
+
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+function base64UrlEncode(buf: Buffer): string {
+  return buf.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
+}
+
+function derivePublicKeyRaw(publicKeyPem: string): Buffer {
+  const spki = createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' }) as Buffer;
+  if (
+    spki.length === ED25519_SPKI_PREFIX.length + 32 &&
+    spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
+  ) {
+    return spki.subarray(ED25519_SPKI_PREFIX.length);
+  }
+  return spki;
+}
+
+function fingerprintPublicKey(publicKeyPem: string): string {
+  return createHash('sha256').update(derivePublicKeyRaw(publicKeyPem)).digest('hex');
+}
+
+export function publicKeyRawBase64UrlFromPem(publicKeyPem: string): string {
+  return base64UrlEncode(derivePublicKeyRaw(publicKeyPem));
+}
+
+export function signDevicePayload(privateKeyPem: string, payload: string): string {
+  const key = createPrivateKey(privateKeyPem);
+  return base64UrlEncode(cryptoSign(null, Buffer.from(payload, 'utf8'), key));
+}
+
+function normalizeDeviceMetadata(value: string | undefined): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed ? trimmed.toLowerCase() : '';
+}
+
+interface BuildDeviceAuthPayloadV3Params {
+  deviceId: string;
+  clientId: string;
+  clientMode: string;
+  role: string;
+  scopes: string[];
+  signedAtMs: number;
+  token?: string | null;
+  nonce: string;
+  platform?: string | null;
+  deviceFamily?: string | null;
+}
+
+/**
+ * Canonical v3 payload that the gateway re-derives and verifies against the
+ * attached signature. Field order and the literal `|` separator must match
+ * openclaw exactly — do not "clean this up".
+ */
+export function buildDeviceAuthPayloadV3(params: BuildDeviceAuthPayloadV3Params): string {
+  return [
+    'v3',
+    params.deviceId,
+    params.clientId,
+    params.clientMode,
+    params.role,
+    params.scopes.join(','),
+    String(params.signedAtMs),
+    params.token ?? '',
+    params.nonce,
+    normalizeDeviceMetadata(params.platform ?? undefined),
+    normalizeDeviceMetadata(params.deviceFamily ?? undefined),
+  ].join('|');
+}
+
+/**
+ * Load an Ed25519 keypair from `filePath`, creating (and chmod-600'ing) one
+ * if absent. The `deviceId` is the SHA-256 of the raw public key, computed
+ * fresh each load so a hand-edited file still self-heals.
+ */
+export function loadOrCreateDeviceIdentity(filePath: string): DeviceIdentity {
+  try {
+    if (existsSync(filePath)) {
+      const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<DeviceIdentity> & {
+        version?: number;
+      };
+      if (
+        parsed?.version === 1 &&
+        typeof parsed.publicKeyPem === 'string' &&
+        typeof parsed.privateKeyPem === 'string'
+      ) {
+        return {
+          deviceId: fingerprintPublicKey(parsed.publicKeyPem),
+          publicKeyPem: parsed.publicKeyPem,
+          privateKeyPem: parsed.privateKeyPem,
+        };
+      }
+    }
+  } catch {
+    /* fall through to generate */
+  }
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const deviceId = fingerprintPublicKey(publicKeyPem);
+  const stored = { version: 1, deviceId, publicKeyPem, privateKeyPem, createdAtMs: Date.now() };
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600 });
+  try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
+  return { deviceId, publicKeyPem, privateKeyPem };
 }

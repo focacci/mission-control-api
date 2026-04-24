@@ -226,17 +226,18 @@ A single row (id: `intella`) is seeded as the default agent (`isDefault: true`).
 
 ## Chat
 
-Single entry point for user-initiated chat turns. The handler persists the user message, starts an `agent_invocations` row, proxies the prompt through `openclaw`, and writes the assistant reply. Phase 2 will add an SSE streaming sibling route.
+Single entry point for buffered user-initiated chat turns. The handler runs the in-process Phase 2 agent runner via `chatOrchestrator.runBufferedChatTurn`, which drives the OpenClaw Gateway `agent` RPC, persists the user + assistant messages and tool-call log, then returns the finalized assistant text. An SSE streaming sibling (`POST /api/chat/stream`) will ship alongside this in a later slice.
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
-| `POST` | `/api/chat` | Send a message to an agent | `{ message, agentId?, context?, sessionId? }` | `{ reply, sessionId, agentId, invocationId }` |
+| `POST` | `/api/chat` | Send a message to an agent (buffered) | `{ message, agentId?, context?, sessionId? }` | `{ reply, sessionId, agentId, invocationId }` |
 
 **Notes:**
 - `message` must be non-empty. `agentId` defaults to `intella`.
-- `context` is an optional view header (`{ type, id?, name?, emoji?, section?, date? }`) that is serialized into the prompt so the agent knows what the user is looking at.
-- `sessionId` (if provided and it exists) reuses the session; otherwise the service resolves one by `(agentId, context.type, context.id)` or creates a new one.
-- The `invocationId` in the response is the `agent_invocations.id` for the turn — use it with `GET /api/invocations/:id` to pull the full transcript + (Phase 2) tool-call trace.
+- `context` is an optional view header (`{ type, id?, name?, emoji?, section?, date? }`) that is serialized into the user message so the agent knows what the user is looking at.
+- `sessionId` (if provided and it exists) reuses the session; otherwise the orchestrator resolves one by `(agentId, context.type, context.id)` or creates a new one.
+- `reply` is the concatenation of every assistant `chat_messages` row written during the turn (joined with blank lines), so multi-cycle tool-use turns come back as a single text blob. Rich per-cycle structure is available via `GET /api/invocations/:id`.
+- Fatal runner errors surface as HTTP failures: `503` for `gateway_unreachable` / `transport`, `429` for `daily_cap_exceeded`, `504` for `timeout`, `499` for `cancelled`, `500` otherwise. The error `details` payload includes the runner `code` and the `invocationId` so callers can correlate.
 
 ---
 

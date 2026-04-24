@@ -13,7 +13,7 @@ import * as briefsService from '../services/briefs.service.js';
 import * as agentsService from '../services/agents.service.js';
 import * as conversationsService from '../services/conversations.service.js';
 import * as invocationsService from '../services/invocations.service.js';
-import { chatService } from '../services/chat.service.js';
+import { runBufferedChatTurn } from './chatOrchestrator.js';
 
 // ---------------------------------------------------------------------------
 // Coarse-grained tool definitions (one tool per domain aggregate).
@@ -869,13 +869,20 @@ async function dispatchChat(action: string, args: Args): Promise<unknown> {
     case 'delete_session':
       await conversationsService.deleteSession(requireArg<string>(args, 'id'));
       return { deleted: true };
-    case 'send_message':
-      return chatService.sendMessage({
+    case 'send_message': {
+      const result = await runBufferedChatTurn({
         message: requireArg<string>(args, 'message'),
         agentId: optArg<string>(args, 'agentId'),
         context: optArg<any>(args, 'context'),
         sessionId: optArg<string>(args, 'sessionId'),
       });
+      return {
+        reply: result.reply,
+        sessionId: result.sessionId,
+        agentId: result.agentId,
+        invocationId: result.invocationId,
+      };
+    }
     default:
       throw new AppError(400, `Unknown chat action: ${action}`);
   }

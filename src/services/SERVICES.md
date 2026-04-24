@@ -62,8 +62,6 @@
   - [`updateAgent`](#updateagentid-input)
   - [`deleteAgent`](#deleteagentid)
   - [`repairAgents`](#repairagents)
-- [Chat Service](#chat-service)
-  - [`sendMessage`](#sendmessagereq)
 - [Conversations Service](#conversations-service)
   - [`createSession`](#createsessioninput)
   - [`findOrCreateSession`](#findorcreatesessioninput)
@@ -584,34 +582,6 @@ Recovery path for when a tracked openclaw agent has gone missing from the CLI (e
 
 ---
 
-## Chat Service
-
-Entry point for user-initiated chat turns. Resolves (or creates) a `chat_sessions` row, persists the user message, starts an `agent_invocations` row, proxies the turn through the `openclaw` CLI, then records the assistant message and completes (or fails) the invocation. Phase 2 replaces the subprocess with an in-process Anthropic SDK loop.
-
-### `sendMessage(req)`
-
-```ts
-sendMessage(req: {
-  message: string;
-  agentId?: string;
-  context?: { type: string; id?: string; name?: string; emoji?: string; section?: string; date?: string };
-  sessionId?: string;
-}): Promise<{ reply: string; sessionId: string; agentId: string; invocationId: string }>
-```
-
-1. Resolves the agent id (`req.agentId` or the `intella` default).
-2. Builds a context header (matches the previous stringly-typed prompt).
-3. Resolves the session: if `sessionId` is provided and exists, reuses it; otherwise `findOrCreateSession` by `(agentId, context.type, context.id)`.
-4. Appends the user message via `appendMessage`.
-5. Starts an invocation with `trigger='user_chat'` and `model = AGENT_DEFAULT_MODEL` (env, defaults to `claude-opus-4-6`).
-6. Runs `openclaw agent --agent <id> --session-id <legacy-key> --message <prompt> --json --timeout 120`.
-7. On success: appends the assistant message linked to the invocation and calls `completeInvocation` with `tokensIn: 0 / tokensOut: 0` (Phase 2 populates real counts).
-8. On failure: calls `failInvocation` with the error message and rethrows a wrapped error.
-
-The legacy `intella-ios-<agent>-<ctx>-<id>` key is still passed to openclaw so existing on-disk sessions aren't orphaned while Phase 2 is pending.
-
----
-
 ## Conversations Service
 
 CRUD over `chat_sessions` and `chat_messages`. The DB is the source of truth for transcripts — the iOS client, the brief generator, and the debugging UI all read from here.
@@ -639,7 +609,7 @@ findOrCreateSession(input: {
 }): Promise<ChatSession>
 ```
 
-Returns the most recent session matching the `(agentId, contextType, contextId)` tuple (null matches null in the DB), or creates one. Used by the chat service to dedup sessions per view.
+Returns the most recent session matching the `(agentId, contextType, contextId)` tuple (null matches null in the DB), or creates one. Used by the chat orchestrator to dedup sessions per view.
 
 ### `getSession(id)`
 

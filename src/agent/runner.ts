@@ -198,16 +198,22 @@ export async function run(
     unsubscribes.push(gateway.subscribe('agent', (p) => { void enqueue(() => processOne(p)); }));
 
     // --- 4. Dispatch the RPC --------------------------------------------
-    const systemPrompt = buildSystemPrompt(params.agentId, params.systemPromptAdditions);
+    // Gateway schema requires `idempotencyKey`; `extraSystemPrompt` is the
+    // real field name (not `systemPrompt`); `timeout` is integer seconds.
+    // Gateway sessionKey must be `agent:<agentId>:<rest>` — otherwise the
+    // server defaults routing to agent "main" and rejects the call as a
+    // mismatched agent.
+    const extraSystemPrompt = buildSystemPrompt(params.agentId, params.systemPromptAdditions);
     const rpcParams: Record<string, unknown> = {
-      sessionKey: params.sessionId,
+      sessionKey: `agent:${params.agentId}:mc-${params.sessionId}`,
       agentId: params.agentId,
       message: params.initialUserMessage,
-      systemPrompt,
+      extraSystemPrompt,
+      idempotencyKey: params.invocationId,
     };
     if (params.model) rpcParams.model = params.model;
     if (params.thinking) rpcParams.thinking = params.thinking;
-    if (params.timeoutSeconds) rpcParams.timeoutSeconds = params.timeoutSeconds;
+    if (params.timeoutSeconds) rpcParams.timeout = params.timeoutSeconds;
 
     gateway
       .request<{ runId: string }>('agent', rpcParams)
