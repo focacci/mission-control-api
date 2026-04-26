@@ -182,7 +182,7 @@ Every chat turn is persisted. The DB is the source of truth for conversations, n
 - `agent_invocations` tracks the lifecycle of every agent run (chat, scheduled slot-start, brief generation).
 - `tool_call_log` captures every MCP tool the model calls, with a one-line `summary` for the collapsed-row UI.
 
-**Phase 2 — in-process agent loop (in progress).** The `openclaw agent` subprocess has been replaced by an in-process OpenClaw Gateway WebSocket client ([src/agent/](src/agent/)). Chat turns run through `handleChatTurn → runner.run`, which subscribes to gateway `lifecycle` / `assistant` / `tool` streams and emits `text_delta` / `tool_use` / `tool_result` / `message_complete` / `done` events. `POST /api/chat` now buffers those events into a single reply for legacy clients. `POST /api/chat/stream` (SSE), `POST /api/invocations/:id/cancel`, and `GET /api/chat/sessions/:id/activity` land in subsequent slices.
+**Phase 2 — in-process agent loop (in progress).** The `openclaw agent` subprocess has been replaced by an in-process OpenClaw Gateway WebSocket client ([src/agent/](src/agent/)). Chat turns run through `handleChatTurn → runner.run`, which subscribes to gateway `lifecycle` / `assistant` / `tool` streams and emits `text_delta` / `tool_use` / `tool_result` / `message_complete` / `done` events. `POST /api/chat` buffers those events into a single reply for legacy clients; `POST /api/chat/stream` ships them frame-by-frame as SSE (see "Streaming chat" below). `POST /api/invocations/:id/cancel` and `GET /api/chat/sessions/:id/activity` land in subsequent slices.
 
 See [CONTROL_LAYER_PLAN.md](CONTROL_LAYER_PLAN.md), [CONTROL_LAYER_PHASE_2_UI.md](CONTROL_LAYER_PHASE_2_UI.md), and [PHASE_2_API_PLAN.md](PHASE_2_API_PLAN.md) for full design context.
 
@@ -243,6 +243,18 @@ curl -X POST http://localhost:3737/api/tasks/<id>/done \
   -H 'Content-Type: application/json' \
   -d '{ "summary": "Alarm set for 6am, tested for 7 days." }'
 ```
+
+### Streaming chat
+
+`POST /api/chat/stream` returns the same chat turn as `POST /api/chat`, but as a Server-Sent Events stream of `AgentEvent` frames. The first frame is always `session_started`; the last is `done` (success) or `error` with `fatal: true`. A `ping` frame is emitted every 15 seconds so mobile / proxy NATs don't drop a long silent tool call. Pre-stream validation errors return JSON `400`; mid-stream failures emit a final `error` frame and close at HTTP 200. Client disconnects do **not** cancel the in-flight invocation — the runner finalizes detached, and clients resume via the (forthcoming) activity endpoint.
+
+```bash
+curl -N -X POST http://localhost:3737/api/chat/stream \
+  -H 'Content-Type: application/json' \
+  -d '{ "message": "Show me my board." }'
+```
+
+See `scripts/sse-stream-smoke.sh` for the full smoke harness and [src/agent/events.ts](src/agent/events.ts) for the event union.
 
 ---
 

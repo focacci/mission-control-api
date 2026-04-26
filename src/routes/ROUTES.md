@@ -226,18 +226,50 @@ A single row (id: `intella`) is seeded as the default agent (`isDefault: true`).
 
 ## Chat
 
-Single entry point for buffered user-initiated chat turns. The handler runs the in-process Phase 2 agent runner via `chatOrchestrator.runBufferedChatTurn`, which drives the OpenClaw Gateway `agent` RPC, persists the user + assistant messages and tool-call log, then returns the finalized assistant text. An SSE streaming sibling (`POST /api/chat/stream`) will ship alongside this in a later slice.
+Two entry points for user-initiated chat turns: a buffered JSON endpoint and an SSE streaming sibling. Both drive the same in-process Phase 2 agent runner (`chatOrchestrator.handleChatTurn`), which calls the OpenClaw Gateway `agent` RPC and persists the user + assistant messages and tool-call log.
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
 | `POST` | `/api/chat` | Send a message to an agent (buffered) | `{ message, agentId?, context?, sessionId? }` | `{ reply, sessionId, agentId, invocationId }` |
+| `POST` | `/api/chat/stream` | Send a message and stream events as SSE | `{ message, agentId?, context?, sessionId? }` | `text/event-stream` of `AgentEvent` frames |
 
 **Notes:**
 - `message` must be non-empty. `agentId` defaults to `intella`.
 - `context` is an optional view header (`{ type, id?, name?, emoji?, section?, date? }`) that is serialized into the user message so the agent knows what the user is looking at.
 - `sessionId` (if provided and it exists) reuses the session; otherwise the orchestrator resolves one by `(agentId, context.type, context.id)` or creates a new one.
-- `reply` is the concatenation of every assistant `chat_messages` row written during the turn (joined with blank lines), so multi-cycle tool-use turns come back as a single text blob. Rich per-cycle structure is available via `GET /api/invocations/:id`.
-- Fatal runner errors surface as HTTP failures: `503` for `gateway_unreachable` / `transport`, `429` for `daily_cap_exceeded`, `504` for `timeout`, `499` for `cancelled`, `500` otherwise. The error `details` payload includes the runner `code` and the `invocationId` so callers can correlate.
+- For `/api/chat`: `reply` is the concatenation of every assistant `chat_messages` row written during the turn (joined with blank lines), so multi-cycle tool-use turns come back as a single text blob. Rich per-cycle structure is available via `GET /api/invocations/:id`.
+- Fatal runner errors on the buffered endpoint surface as HTTP failures: `503` for `gateway_unreachable` / `transport`, `429` for `daily_cap_exceeded`, `504` for `timeout`, `499` for `cancelled`, `500` otherwise. The error `details` payload includes the runner `code` and the `invocationId` so callers can correlate.
+
+### `POST /api/chat/stream` — SSE contract
+
+Response headers:
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-transform
+Connection: keep-alive
+X-Accel-Buffering: no
+```
+
+Body is a sequence of SSE frames produced by `serialize()` in [src/agent/events.ts](../agent/events.ts). The first frame is always `session_started`; the last is `done` (success) or `error` with `fatal: true` (failure). A `ping` frame is emitted every 15 seconds to keep proxies / mobile NATs from killing the connection during long tool calls — clients should discard them.
+
+| Event | Payload (data, JSON) |
+|---|---|
+| `session_started` | `{ type, sessionId, invocationId, runId }` |
+| `text_delta` | `{ type, text }` |
+| `tool_use` | `{ type, id, name, input }` |
+| `tool_result` | `{ type, id, output, isError, durationMs, summary? }` |
+| `message_complete` | `{ type, messageId }` |
+| `done` | `{ type, tokensIn, tokensOut }` |
+| `error` | `{ type, error, code?, fatal? }` |
+| `ping` | `{ type, ts }` |
+
+**Error modes:**
+- Pre-stream validation errors (Zod / JSON parse) flow through the global error handler and return `400 application/json`.
+- Errors *after* headers ship are SSE `error` frames with `fatal: true` followed by stream close. HTTP status is always `200` for opened streams — once headers are sent, we cannot revise the status.
+- Backpressure ceiling (4 MiB buffered) destroys the socket; the runner continues detached.
+
+**Detached runner:** A client disconnect does NOT cancel the in-flight invocation — the runner keeps writing to a no-op sink and finalizes the invocation row normally. Cancellation is a separate endpoint (slice 7); resume / replay is via the activity endpoint (slice 8).
 
 ---
 
