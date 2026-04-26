@@ -71,7 +71,14 @@ export async function chatRoutes(app: FastifyInstance) {
       writeEvent({ type: 'ping', ts: new Date().toISOString() });
     }, HEARTBEAT_MS);
 
-    request.raw.on('close', () => {
+    // Detect actual client disconnects via the response socket. Watching
+    // `request.raw` ('close' on IncomingMessage) is unreliable in Node 18+:
+    // it fires when the request body stream finishes — which Fastify does
+    // before this handler ever runs — instantly poisoning `closed`,
+    // clearing the heartbeat, and making every `writeFrame` return false.
+    // The result is a 200 + headers + zero body, which is exactly what we
+    // observed end-to-end.
+    raw.on('close', () => {
       closed = true;
       clearInterval(heartbeat);
     });

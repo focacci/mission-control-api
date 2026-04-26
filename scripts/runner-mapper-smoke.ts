@@ -131,7 +131,7 @@ async function setupSession(contextType: string) {
     trigger: 'user_chat',
     agentId: 'intella',
     sessionId: session.id,
-    model: 'claude-opus-4-6',
+    model: 'claude-sonnet-4-6',
   });
   return { session, invocation };
 }

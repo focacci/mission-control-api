@@ -14,7 +14,7 @@ import type { AgentEvent, AgentEventErrorCode } from './events.js';
 import { run, type RunnerOptions } from './runner.js';
 
 const DEFAULT_AGENT_ID = 'intella';
-const DEFAULT_MODEL = process.env.AGENT_DEFAULT_MODEL ?? 'claude-opus-4-6';
+const DEFAULT_MODEL = process.env.AGENT_DEFAULT_MODEL ?? 'claude-sonnet-4.6';
 
 export interface ChatContextInput {
   type: string;
@@ -111,6 +111,7 @@ export async function handleChatTurn(
         invocationId: invocation.id,
         sessionId: session.id,
         agentId,
+        model: DEFAULT_MODEL,
         initialUserMessage: userContent,
         onEvent: params.onEvent,
       },
