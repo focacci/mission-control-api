@@ -1,4 +1,5 @@
 import { claimSlotForRun, findDueSlots } from '../services/schedule.service.js';
+import { nowLocalDatetime } from '../types/index.types.js';
 import { runDueSlot } from './slotRunner.js';
 
 export interface StartSlotTickerOptions {
@@ -25,7 +26,7 @@ export function startSlotTicker(opts: StartSlotTickerOptions = {}): () => void {
     if (stopped || isRunning) return;
     isRunning = true;
     try {
-      const due = await findDueSlots(new Date().toISOString());
+      const due = await findDueSlots(nowLocalDatetime());
       for (const slot of due) {
         if (stopped) break;
         const claimed = claimSlotForRun(slot.id);

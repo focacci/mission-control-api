@@ -6,8 +6,13 @@
   - [`FOCUS_ICONS`](#focus_icons)
   - [`FOCUS_ORDER`](#focus_order)
 - [Utility Functions](#utility-functions)
+  - [`APP_TZ`](#app_tz)
   - [`now()`](#now)
   - [`today()`](#today)
+  - [`nowLocalParts()`](#nowlocalparts)
+  - [`nowLocalDatetime()`](#nowlocaldatetime)
+  - [`addDaysISO`](#adddaysisobasedate-n)
+  - [`getSundayOf`](#getsundayofdatestr)
   - [`deriveDisplayName`](#derivedisplaynameemoji-name)
 - [Error Utilities](#error-utilities)
   - [`AppError`](#apperror)
@@ -70,13 +75,21 @@ Numeric mapping used by the goals service to produce the correct `ORDER BY` expr
 
 ## Utility Functions
 
+### `APP_TZ`
+
+```ts
+const APP_TZ: string = process.env.APP_TZ ?? 'America/New_York'
+```
+
+The IANA time zone the app treats as the user's local wall clock. Read once at module load. Drives `today()`, `nowLocalParts()`, and `nowLocalDatetime()`.
+
 ### `now()`
 
 ```ts
 function now(): string
 ```
 
-Returns the current time as a full ISO 8601 timestamp string (`YYYY-MM-DDTHH:mm:ss.sssZ`). Used for `updatedAt`, `completedAt`, etc.
+Returns the current time as a full ISO 8601 UTC timestamp (`YYYY-MM-DDTHH:mm:ss.sssZ`). Used for `updatedAt`, `completedAt`, etc. — fields that represent an instant.
 
 ### `today()`
 
@@ -84,7 +97,39 @@ Returns the current time as a full ISO 8601 timestamp string (`YYYY-MM-DDTHH:mm:
 function today(): string
 ```
 
-Returns the current date as `YYYY-MM-DD`. Used for `createdAt` on goals and tasks.
+Returns today's calendar date as `YYYY-MM-DD` in `APP_TZ`. Used for `createdAt` on goals, initiatives, tasks, and agent assignments.
+
+### `nowLocalParts()`
+
+```ts
+function nowLocalParts(): { date: string; time: string; datetime: string }
+```
+
+Returns the current wall-clock instant in `APP_TZ` as three parallel forms: `date` = `YYYY-MM-DD`, `time` = `HH:mm`, `datetime` = `YYYY-MM-DDTHH:mm`. The `datetime` form matches `scheduleSlots.datetime` exactly and is the canonical "what time is it for the user" used by the slot ticker and slot picker.
+
+### `nowLocalDatetime()`
+
+```ts
+function nowLocalDatetime(): string
+```
+
+Convenience for `nowLocalParts().datetime`. Used by `findDueSlots` and `findNextAvailableSlot` to compare against the wall-clock-string `scheduleSlots.datetime` column.
+
+### `addDaysISO(baseDate, n)`
+
+```ts
+function addDaysISO(baseDate: string, n: number): string
+```
+
+Adds `n` days to a `YYYY-MM-DD` string. Pure UTC-int math — independent of server TZ and DST. Negative `n` subtracts days.
+
+### `getSundayOf(dateStr?)`
+
+```ts
+function getSundayOf(dateStr?: string): string
+```
+
+Returns the `YYYY-MM-DD` of the Sunday on or before `dateStr` (defaults to `today()`). Used by the schedule and board services to anchor week plans. Pure UTC-int math.
 
 ### `deriveDisplayName(emoji, name)`
 

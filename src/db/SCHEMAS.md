@@ -167,6 +167,8 @@ Represents a generated weekly schedule. One row per week.
 
 Individual 2-hour time blocks within a week plan. 84 slots per week (12 slots/day × 7 days).
 
+> **Time zone:** `date`, `time`, and `datetime` are naive wall-clock strings interpreted in `APP_TZ` (defaults to `America/New_York`). They are **not** UTC and **not** ISO-with-offset. Comparisons (e.g. in `findDueSlots`) must be against a wall-clock string in the same TZ — see `nowLocalDatetime()` in [TYPES.md](../types/TYPES.md).
+
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text` PK | nanoid |

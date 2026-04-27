@@ -1,4 +1,4 @@
-import { eq, asc, inArray, or, and, gte, isNull } from 'drizzle-orm';
+import { eq, asc, inArray, and, gt, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import {
@@ -11,6 +11,7 @@ import {
 import {
   now,
   today,
+  nowLocalDatetime,
   notFound,
   AppError,
   type CreateAgentAssignmentInput,
@@ -229,50 +230,27 @@ async function setStatus(
 /**
  * Find the next chronologically-available slot for an assignment.
  *
- * Preference order:
- *   1) A pending, unassigned `agent_assignment` slot whose goalId matches the
- *      assignment's resolved goal.
- *   2) Any pending, unassigned `flex` slot.
- *
- * Only slots dated today or later are considered.
+ * Returns the earliest pending, unassigned slot of type `flex` or
+ * `agent_assignment` whose `datetime` is strictly after now (wall clock in
+ * `APP_TZ`). Goal allocation on the slot is ignored — "next available" wins
+ * over goal alignment, since users expect literal next-slot scheduling.
  */
-async function findNextAvailableSlot(aaId: string) {
-  const todayDate = today();
-  const goalIdMap = await resolveGoalIdsForAssignments([aaId]);
-  const goalId = goalIdMap.get(aaId);
-
-  if (goalId) {
-    const [goalSlot] = await db
-      .select()
-      .from(scheduleSlots)
-      .where(
-        and(
-          eq(scheduleSlots.goalId, goalId),
-          eq(scheduleSlots.type, 'agent_assignment'),
-          eq(scheduleSlots.status, 'pending'),
-          isNull(scheduleSlots.agentAssignmentId),
-          gte(scheduleSlots.date, todayDate),
-        ),
-      )
-      .orderBy(asc(scheduleSlots.datetime))
-      .limit(1);
-    if (goalSlot) return goalSlot;
-  }
-
-  const [flexSlot] = await db
+async function findNextAvailableSlot(_aaId: string) {
+  const nowLocal = nowLocalDatetime();
+  const [openSlot] = await db
     .select()
     .from(scheduleSlots)
     .where(
       and(
-        eq(scheduleSlots.type, 'flex'),
         eq(scheduleSlots.status, 'pending'),
         isNull(scheduleSlots.agentAssignmentId),
-        gte(scheduleSlots.date, todayDate),
+        gt(scheduleSlots.datetime, nowLocal),
+        inArray(scheduleSlots.type, ['flex', 'agent_assignment']),
       ),
     )
     .orderBy(asc(scheduleSlots.datetime))
     .limit(1);
-  return flexSlot ?? null;
+  return openSlot ?? null;
 }
 
 /**

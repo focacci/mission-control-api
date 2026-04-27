@@ -47,6 +47,10 @@ DB_PATH=./data/mission-control.db
 VAULT_PATH=/path/to/your/obsidian/vault
 WORKSPACE_PATH=/path/to/your/workspace
 
+# IANA time zone for the user's wall clock — drives schedule slot firing and
+# `today()`/`createdAt`. Defaults to America/New_York if unset.
+APP_TZ=America/New_York
+
 # OpenClaw Gateway (required for live agent runs — see PHASE_2_API_PLAN.md)
 OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
 OPENCLAW_GATEWAY_TOKEN=<shared secret from ~/.openclaw/openclaw.json>

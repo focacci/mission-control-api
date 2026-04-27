@@ -1,6 +1,6 @@
 import { eq, and, sql, asc, inArray } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { today } from '../types/index.types.js';
+import { getSundayOf } from '../types/index.types.js';
 import { goals, initiatives, tasks, weekPlans, scheduleSlots, weekGoalAllocations } from '../db/schema.js';
 
 // ---------------------------------------------------------------------------
@@ -77,11 +77,7 @@ function computeStats(allTasks: (typeof tasks.$inferSelect)[]) {
 }
 
 async function getWeekSummary() {
-  const todayStr = today();
-  const day = new Date(`${todayStr}T00:00:00`).getDay();
-  const d = new Date(`${todayStr}T00:00:00`);
-  d.setDate(d.getDate() - day);
-  const weekStart = d.toISOString().slice(0, 10);
+  const weekStart = getSundayOf();
 
   const [plan] = await db
     .select()

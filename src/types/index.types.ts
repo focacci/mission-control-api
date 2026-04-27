@@ -22,12 +22,67 @@ export const FOCUS_ORDER = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+export const APP_TZ: string = process.env.APP_TZ ?? 'America/New_York';
+
 export function now(): string {
   return new Date().toISOString();
 }
 
 export function today(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TZ }).format(new Date());
+}
+
+/**
+ * The current wall-clock instant in `APP_TZ`, formatted three ways:
+ *   - `date`     = "YYYY-MM-DD"
+ *   - `time`     = "HH:mm"
+ *   - `datetime` = "YYYY-MM-DDTHH:mm" (matches `scheduleSlots.datetime`)
+ */
+export function nowLocalParts(): { date: string; time: string; datetime: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const lookup: Record<string, string> = {};
+  for (const p of parts) lookup[p.type] = p.value;
+  let hour = lookup.hour ?? '00';
+  if (hour === '24') hour = '00';
+  const date = `${lookup.year}-${lookup.month}-${lookup.day}`;
+  const time = `${hour}:${lookup.minute}`;
+  return { date, time, datetime: `${date}T${time}` };
+}
+
+/** Convenience: returns `nowLocalParts().datetime`. */
+export function nowLocalDatetime(): string {
+  return nowLocalParts().datetime;
+}
+
+/**
+ * Add `n` days to a YYYY-MM-DD string. Pure UTC math — independent of server
+ * TZ and DST.
+ */
+export function addDaysISO(baseDate: string, n: number): string {
+  const [y, m, d] = baseDate.split('-').map(Number);
+  const ms = Date.UTC(y, m - 1, d) + n * 86400000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Return the YYYY-MM-DD of the Sunday on or before `dateStr` (defaults to
+ * `today()`). Uses pure UTC math on the calendar date — independent of server
+ * TZ.
+ */
+export function getSundayOf(dateStr?: string): string {
+  const base = dateStr ?? today();
+  const [y, m, d] = base.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d));
+  const day = utc.getUTCDay();
+  return addDaysISO(base, -day);
 }
 
 export function deriveDisplayName(emoji: string, name: string): string {

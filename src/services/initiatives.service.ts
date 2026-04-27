@@ -4,6 +4,7 @@ import { db } from '../db/client.js';
 import { goals, initiatives, tasks, agentAssignments } from '../db/schema.js';
 import {
   now,
+  today,
   deriveDisplayName,
   notFound,
   AppError,
@@ -82,7 +83,7 @@ export async function createInitiative(input: CreateInitiativeInput) {
     status: input.status ?? 'active',
     mission: input.mission ?? null,
     sortOrder: 0,
-    createdAt: new Date().toISOString().slice(0, 10),
+    createdAt: today(),
     updatedAt: now(),
   };
 

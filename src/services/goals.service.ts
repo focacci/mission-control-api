@@ -5,6 +5,7 @@ import { goals, initiatives, tasks, agentAssignments } from '../db/schema.js';
 import {
   FOCUS_ICONS,
   now,
+  today,
   deriveDisplayName,
   notFound,
   AppError,
@@ -86,7 +87,7 @@ export async function createGoal(input: CreateGoalInput) {
     timeline: input.timeline ?? null,
     story: input.story ?? null,
     sortOrder: 0,
-    createdAt: new Date().toISOString().slice(0, 10),
+    createdAt: today(),
     updatedAt: now(),
   };
 

@@ -65,7 +65,7 @@
   - [`unassignAgentAssignment`](#unassignagentassignmentslotid)
   - [`addSlotOutput`](#addslotoutputslotid-input)
   - [`deleteSlotOutput`](#deleteslotoutputslotid-outputid)
-  - [`findDueSlots`](#finddueslotsnowiso)
+  - [`findDueSlots`](#finddueslotsnowlocaldatetime)
   - [`claimSlotForRun`](#claimslotforrunslotid)
 - [Slot Runner](#slot-runner)
   - [`runDueSlot`](#rundueslotslot)
@@ -409,7 +409,7 @@ startAgentAssignment(id: string): Promise<AgentAssignment>
 
 Starts an assignment. Behavior depends on current status:
 
-- `pending` → `scheduled`: finds the next chronologically available slot (preferring `agent_assignment` slots whose `goalId` matches the assignment's resolved goal, falling back to any pending `flex` slot dated today or later), links it via `agentAssignmentId`, marks the slot as `agent_assignment`, and sets the assignment status to `scheduled`. Throws `AppError(409)` if no slot is available.
+- `pending` → `scheduled`: finds the earliest pending, unassigned slot of type `flex` or `agent_assignment` whose `datetime` is strictly after now in `APP_TZ` — goal allocation on the slot is ignored. Links it via `agentAssignmentId`, marks the slot `agent_assignment`, and sets the assignment status to `scheduled`. Throws `AppError(409)` if no slot is available.
 - `scheduled` → `in-progress`: begins work on the assignment.
 - `blocked` → `in-progress`: resumes a blocked assignment.
 
@@ -633,13 +633,13 @@ deleteSlotOutput(slotId: string, outputId: string): Promise<void>
 
 Removes the output. Validates both ids match.
 
-### `findDueSlots(nowIso)`
+### `findDueSlots(nowLocalDatetime)`
 
 ```ts
-findDueSlots(nowIso: string): Promise<ScheduleSlot[]>
+findDueSlots(nowLocalDatetime: string): Promise<ScheduleSlot[]>
 ```
 
-Returns slots whose `datetime <= nowIso`, `status = 'pending'`, and `agentAssignmentId IS NOT NULL`, ordered by `datetime ASC`. Used by the slot ticker to discover work.
+Returns slots whose `datetime <= nowLocalDatetime`, `status = 'pending'`, and `agentAssignmentId IS NOT NULL`, ordered by `datetime ASC`. The argument must be a wall-clock string in `APP_TZ` formatted `YYYY-MM-DDTHH:mm` — comparison against `scheduleSlots.datetime` is lexical, so passing UTC ISO would skew firing by the `APP_TZ` offset. The slot ticker uses `nowLocalDatetime()` from `index.types.ts`.
 
 ### `claimSlotForRun(slotId)`
 

@@ -12,6 +12,8 @@ import {
 import {
   now,
   today,
+  addDaysISO,
+  getSundayOf,
   AppError,
   notFound,
   type UpdateSlotInput,
@@ -52,18 +54,7 @@ const SIMMER_TOTAL = 4;
 // Date helpers
 // ---------------------------------------------------------------------------
 
-function getSundayOf(dateStr?: string): string {
-  const d = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
-  const day = d.getDay();
-  d.setDate(d.getDate() - day);
-  return d.toISOString().slice(0, 10);
-}
-
-function addDays(baseDate: string, n: number): string {
-  const d = new Date(`${baseDate}T00:00:00`);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
-}
+// Date helpers `getSundayOf` and `addDaysISO` are imported from index.types.ts.
 
 function slotType(
   dayIndex: number,
@@ -182,7 +173,7 @@ async function enrichSlotsWithAssignments(
 
 export async function generateWeekPlan(weekStart?: string) {
   const normalizedStart = getSundayOf(weekStart);
-  const normalizedEnd = addDays(normalizedStart, 6);
+  const normalizedEnd = addDaysISO(normalizedStart, 6);
 
   const [existing] = await db
     .select()
@@ -233,7 +224,7 @@ export async function generateWeekPlan(weekStart?: string) {
   const slotRows: SlotRow[] = [];
 
   for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-    const date = addDays(normalizedStart, dayIndex);
+    const date = addDaysISO(normalizedStart, dayIndex);
     const dayName = DAY_NAMES[dayIndex];
 
     for (const time of SLOT_TIMES) {
@@ -488,13 +479,20 @@ function computeAllocations(activeGoals: (typeof goals.$inferSelect)[]) {
 
 export type ScheduleSlotRow = typeof scheduleSlots.$inferSelect;
 
-export async function findDueSlots(nowIso: string): Promise<ScheduleSlotRow[]> {
+/**
+ * Returns slots whose `datetime` (a wall-clock string in `APP_TZ`) is at or
+ * before `nowLocalDatetime` ("YYYY-MM-DDTHH:mm" in `APP_TZ`), with
+ * `status = 'pending'` and an `agentAssignmentId` set.
+ */
+export async function findDueSlots(
+  nowLocalDatetime: string,
+): Promise<ScheduleSlotRow[]> {
   return db
     .select()
     .from(scheduleSlots)
     .where(
       and(
-        lte(scheduleSlots.datetime, nowIso),
+        lte(scheduleSlots.datetime, nowLocalDatetime),
         eq(scheduleSlots.status, 'pending'),
         isNotNull(scheduleSlots.agentAssignmentId),
       ),
