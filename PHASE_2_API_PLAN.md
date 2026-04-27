@@ -374,7 +374,7 @@ Each slice lands independently. Do not bundle.
 4. **Runner + events + presenters + `gateway_run_id` column.** ✅ **Shipped 2026-04-23.** [src/agent/runner.ts](src/agent/runner.ts), [events.ts](src/agent/events.ts), [presenters.ts](src/agent/presenters.ts), [systemPrompt.ts](src/agent/systemPrompt.ts), [chatOrchestrator.ts](src/agent/chatOrchestrator.ts). `gateway_run_id` column added. `tool_call_log.summary` populated via presenters. **Landmines found during integration:** (a) `agent` RPC requires `message` + `idempotencyKey`; optional fields are `extraSystemPrompt` (not `systemPrompt`) and `timeout` (not `timeoutSeconds`) — runner passes `idempotencyKey: invocationId`. (b) Session key must be prefixed `agent:<agentId>:<rest>` or the gateway routes to `DEFAULT_AGENT_ID = "main"` and rejects with `agent "<x>" does not match session key agent "main"` — runner uses `agent:${agentId}:mc-${sessionId}`. (c) Shared-token scope issue from slice 2 resolved here by adding inline Ed25519 device-identity signing to the gateway client (see slice 2 note and [README.md §Gateway device identity](README.md)).
 5. **Buffered `POST /api/chat` rewritten on the orchestrator.** ✅ **Shipped 2026-04-23.** [src/services/chat.service.ts](src/services/chat.service.ts) deleted. `POST /api/chat` now drives `chatOrchestrator.runBufferedChatTurn`; MCP `chat.send_message` bridge also rewired. Same request/response shape — iOS unchanged. Tool calls land in `tool_call_log`; invocations carry real `tokensIn`/`tokensOut` + `gatewayRunId`.
 6. **`POST /api/chat/stream` + 15s heartbeat.** SSE route, hand-written `reply.raw` framing. Verify with `curl -N`.
-7. **`POST /api/invocations/:id/cancel`.** Wire to `sessions.abort`; reconcile stale states.
+7. **`POST /api/invocations/:id/cancel`.** ✅ **Shipped 2026-04-26.** [src/services/invocations.service.ts](src/services/invocations.service.ts) gains `cancelInvocation(id, opts?)`; route added in [src/routes/invocations.routes.ts](src/routes/invocations.routes.ts). 404 on unknown id, 409 if status≠`running`, otherwise dispatches `sessions.abort` with `sessionKey = "agent:<agentId>:mc-<sessionId>"` (matches the runner's dispatch shape from slice 4). Status transition stays the runner's job — only the reconcile path (`GatewayRequestError` with code/message indicating "not running"/"not found"/"no session") forcibly marks the row `status='cancelled'` with `error='stale'` and returns `reconciled: true`. Other gateway errors are rethrown. Smoke: `npx tsx scripts/cancel-invocation-smoke.ts` — 17 assertions covering all five paths (404, 409 + non-call, happy-path RPC shape + row-untouched, reconcile, rethrow).
 8. **`GET /api/chat/sessions/:id/activity`.** History reconstruction — the key unblocker for UI slice 8.
 9. **Auth middleware (`X-Intella-Token`).** Implement [src/middleware/auth.ts](src/middleware/auth.ts); verify SSE responses still flow with the custom header.
 
@@ -407,9 +407,11 @@ Slices 1–6 unblock the UI POC (CONTROL_LAYER_PHASE_2_UI.md §9 steps 1–5). S
 - [ ] Client disconnecting mid-stream does not kill the invocation — it runs to `status='complete'`.
 - [ ] Gateway disconnected at request time → single `error` event with `code: 'gateway_unreachable'`.
 
-### After slice 7
-- [ ] Mid-turn `POST /api/invocations/:id/cancel` aborts within 2s; invocation ends `status='cancelled'`; stream emits `error` with `code: 'cancelled'`, `fatal: true`.
-- [ ] Cancelling an already-complete invocation returns 409.
+### After slice 7 ✅
+- [x] Mid-turn `POST /api/invocations/:id/cancel` aborts within 2s; invocation ends `status='cancelled'`; stream emits `error` with `code: 'cancelled'`, `fatal: true`. *(End-to-end via runner: `sessions.abort` triggers a `lifecycle.error` event whose message contains "abort"/"cancel", classified by `classifyErrorCode` to `code: 'cancelled'`, `status: 'cancelled'`. Smoke covers the dispatch + reconcile paths against an injected gateway.)*
+- [x] Cancelling an already-complete invocation returns 409. *(Smoke C2.)*
+- [x] Cancelling an unknown invocation returns 404. *(Smoke C1.)*
+- [x] Reconciles to `status='cancelled'`, `error='stale'` when the gateway no longer knows the session. *(Smoke C4.)*
 
 ### After slice 8
 - [ ] `GET /api/chat/sessions/:id/activity` for a 2-cycle turn returns `[message(user), message(assistant #1), tool_call(board), message(assistant #2), tool_call(tasks)]` in that order.

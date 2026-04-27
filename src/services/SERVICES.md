@@ -79,6 +79,7 @@
   - [`listInvocations`](#listinvocationsopts)
   - [`getInvocation`](#getinvocationid)
   - [`getTodayTokenUsage`](#gettodaytokenusage)
+  - [`cancelInvocation`](#cancelinvocationid-opts)
 - [Tool Calls Service](#tool-calls-service)
   - [`recordToolCallStart`](#recordtoolcallstartinput)
   - [`recordToolCallResult`](#recordtoolcallresultid-input)
@@ -735,6 +736,20 @@ Full detail for the debugging UI: the invocation row plus every message and tool
 ### `getTodayTokenUsage()`
 
 Sums `tokensIn + tokensOut` across all invocations started since the current UTC day boundary. Used by the Phase 2 runner to enforce `AGENT_DAILY_TOKEN_CAP`.
+
+### `cancelInvocation(id, opts?)`
+
+```ts
+cancelInvocation(id: string, opts?: {
+  gateway?: { request<T>(method: string, params?: unknown): Promise<T> };
+}): Promise<{ cancelled: true; reconciled: boolean }>
+```
+
+Aborts the in-flight gateway session for a `running` invocation. Throws `notFound` (404) if the row is missing and `AppError(409)` if the invocation isn't running. Calls `sessions.abort` on the OpenClaw gateway with `sessionKey = "agent:<agentId>:mc-<sessionId>"` — the same shape the runner uses on dispatch. The runner's `lifecycle.error` handler is what actually transitions the row to `cancelled`; this function only dispatches the RPC.
+
+If the gateway responds with a "session not running / not found / no session" error, this function reconciles the row directly via `failInvocation({ status: 'cancelled', error: 'stale' })` and returns `reconciled: true`. Other gateway errors are rethrown unchanged.
+
+The `gateway` option is for tests — production callers omit it and the singleton from `getGatewayClient()` is used.
 
 ---
 

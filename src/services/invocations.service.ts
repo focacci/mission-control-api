@@ -6,6 +6,7 @@ import {
   chatMessages,
   toolCallLog,
 } from '../db/schema.js';
+import { GatewayRequestError, getGatewayClient } from '../agent/gatewayClient.js';
 import { AppError, notFound, now } from '../types/index.types.js';
 
 export type AgentInvocation = typeof agentInvocations.$inferSelect;
@@ -201,4 +202,73 @@ export function ensureRunning(invocation: AgentInvocation): void {
   if (invocation.status !== 'running') {
     throw new AppError(409, `Invocation ${invocation.id} is not running (status=${invocation.status})`);
   }
+}
+
+export interface CancelInvocationResult {
+  cancelled: true;
+  /** True when the gateway said the session wasn't running but our row was — we
+   * forcibly transitioned the invocation to `cancelled` with `error='stale'`. */
+  reconciled: boolean;
+}
+
+/**
+ * Minimal gateway surface used by `cancelInvocation` — kept tiny so smoke tests
+ * can inject a stub without spinning up the WS client.
+ */
+export interface CancelGateway {
+  request<T = unknown>(method: string, params?: unknown): Promise<T>;
+}
+
+export interface CancelInvocationOpts {
+  gateway?: CancelGateway;
+}
+
+/**
+ * Cancel a running invocation by aborting its gateway session. The runner's
+ * `lifecycle.error` handler is what actually transitions the row to
+ * `cancelled` once the gateway emits the abort event. This function only
+ * dispatches the RPC and reconciles the rare case where the gateway has
+ * already lost the session but our row still says `running`.
+ *
+ * Errors:
+ *  - 404 if the invocation doesn't exist
+ *  - 409 if status is not `running`
+ *
+ * Reconcile path: if the gateway's `sessions.abort` rejects with a code/
+ * message indicating the session isn't running ("not running" / "not found" /
+ * "no session"), we mark the invocation `cancelled` with `error='stale'` and
+ * return `{ cancelled: true, reconciled: true }`.
+ */
+export async function cancelInvocation(
+  id: string,
+  opts: CancelInvocationOpts = {},
+): Promise<CancelInvocationResult> {
+  const [invocation] = await db
+    .select()
+    .from(agentInvocations)
+    .where(eq(agentInvocations.id, id));
+  if (!invocation) throw notFound('AgentInvocation', id);
+  ensureRunning(invocation);
+
+  const gateway = opts.gateway ?? getGatewayClient();
+  const sessionKey = `agent:${invocation.agentId}:mc-${invocation.sessionId}`;
+
+  try {
+    await gateway.request('sessions.abort', { sessionKey });
+    return { cancelled: true, reconciled: false };
+  } catch (err) {
+    if (isSessionNotRunningError(err)) {
+      await failInvocation(id, { error: 'stale', status: 'cancelled' });
+      return { cancelled: true, reconciled: true };
+    }
+    throw err;
+  }
+}
+
+function isSessionNotRunningError(err: unknown): boolean {
+  if (!(err instanceof GatewayRequestError)) return false;
+  const code = err.code.toLowerCase();
+  const msg = err.message.toLowerCase();
+  if (code.includes('not_found') || code.includes('not_running') || code.includes('no_session')) return true;
+  return msg.includes('not running') || msg.includes('not found') || msg.includes('no session');
 }

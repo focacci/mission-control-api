@@ -301,12 +301,14 @@ Read-only introspection over `agent_invocations`. Used by the debugging UI and, 
 |--------|------|-------------|-------------|----------|
 | `GET` | `/api/invocations` | List invocations | `?trigger=&status=&limit=&since=<ISO>` | `AgentInvocation[]` (most recent first, default 50) |
 | `GET` | `/api/invocations/:id` | Full detail: invocation + messages + tool calls | — | `{ invocation, messages: ChatMessage[], toolCalls: ToolCallLog[] }` |
+| `POST` | `/api/invocations/:id/cancel` | Abort a running gateway session for this invocation | — | `{ cancelled: true, reconciled: boolean }` |
 
 **Notes:**
 - `trigger` is one of `slot_start \| brief \| user_chat \| manual`.
 - `status` is one of `running \| complete \| error \| timeout \| cancelled`.
 - `since` is an ISO timestamp filter on `started_at`.
 - `toolCalls` is populated starting in Phase 2; Phase 1 invocations will return an empty array.
+- `POST .../cancel` calls `sessions.abort` on the OpenClaw gateway with `sessionKey = "agent:<agentId>:mc-<sessionId>"`. The runner's `lifecycle.error` handler is what writes the final `status='cancelled'` — this route only dispatches the abort. Returns `404` if the invocation is missing, `409` if it's not `running`. If the gateway reports the session isn't running but our row still says `running`, the service reconciles the row to `status='cancelled'` with `error='stale'` and returns `reconciled: true`.
 
 ---
 
