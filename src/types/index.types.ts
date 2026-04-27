@@ -133,17 +133,23 @@ export const UpdateRequirementTestSchema = z.object({
 });
 
 // Agent Assignments
-export const AGENT_ASSIGNMENT_STATUSES = ['pending', 'in-progress', 'done', 'blocked'] as const;
+export const AGENT_ASSIGNMENT_STATUSES = [
+  'pending',
+  'scheduled',
+  'in-progress',
+  'done',
+  'blocked',
+] as const;
 
 export const CreateAgentAssignmentSchema = z.object({
   title: z.string().min(1),
-  instructions: z.string().min(1),
+  description: z.string().nullable().optional(),
   agentId: z.string().nullable().optional(),
 });
 
 export const UpdateAgentAssignmentSchema = z.object({
   title: z.string().min(1).optional(),
-  instructions: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
   agentId: z.string().nullable().optional(),
   sortOrder: z.number().int().optional(),
 });

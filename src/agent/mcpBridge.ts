@@ -164,7 +164,7 @@ export const TOOLS = [
         initiativeId: { type: 'string', description: 'Parent initiative ID (list/create).' },
         taskId: { type: 'string', description: 'Parent task ID (list/create).' },
         title: { type: 'string', description: 'Short label (create/update).' },
-        instructions: { type: 'string', description: 'Instructions for the agent (create/update).' },
+        description: { type: 'string', description: 'Free-form description of the assignment (create/update; optional).' },
         agentId: { type: 'string', description: 'Agent to bind (create/update; null to clear).' },
         sortOrder: { type: 'number', description: 'Sort position (update only).' },
       },
@@ -636,14 +636,14 @@ async function dispatchAgentAssignments(action: string, args: Args): Promise<unk
       const parent = resolveAAParent(args);
       return aaService.createAgentAssignmentForParent(parent.kind, parent.id, {
         title: requireArg<string>(args, 'title'),
-        instructions: requireArg<string>(args, 'instructions'),
+        description: optArg<string | null>(args, 'description'),
         agentId: optArg<string | null>(args, 'agentId'),
       });
     }
     case 'update':
       return aaService.updateAgentAssignment(requireArg<string>(args, 'id'), {
         title: optArg<string>(args, 'title'),
-        instructions: optArg<string>(args, 'instructions'),
+        description: optArg<string | null>(args, 'description'),
         agentId: optArg<string | null>(args, 'agentId'),
         sortOrder: optArg<number>(args, 'sortOrder'),
       });

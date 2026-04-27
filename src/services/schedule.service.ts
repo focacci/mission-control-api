@@ -275,7 +275,7 @@ export async function generateWeekPlan(weekStart?: string) {
     const pendingAAs = await db
       .select()
       .from(agentAssignments)
-      .where(inArray(agentAssignments.status, ['pending', 'in-progress', 'blocked']))
+      .where(inArray(agentAssignments.status, ['pending', 'scheduled', 'in-progress', 'blocked']))
       .orderBy(asc(agentAssignments.sortOrder));
 
     const aaGoalMap = await resolveGoalIdsForAssignments(pendingAAs.map(a => a.id));

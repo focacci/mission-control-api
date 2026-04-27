@@ -1,4 +1,4 @@
-import { eq, asc, inArray, or, and } from 'drizzle-orm';
+import { eq, asc, inArray, or, and, gte, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import {
@@ -144,7 +144,7 @@ export async function createAgentAssignmentForParent(
     initiativeId: kind === 'initiative' ? parentId : null,
     taskId: kind === 'task' ? parentId : null,
     title: input.title,
-    instructions: input.instructions,
+    description: input.description ?? null,
     agentId: input.agentId ?? null,
     status: 'pending' as AgentAssignmentStatus,
     completedAt: null,
@@ -174,7 +174,7 @@ export async function updateAgentAssignment(
 
   const updates: Partial<typeof existing> = { updatedAt: now() };
   if (input.title !== undefined) updates.title = input.title;
-  if (input.instructions !== undefined) updates.instructions = input.instructions;
+  if (input.description !== undefined) updates.description = input.description ?? null;
   if (input.agentId !== undefined) updates.agentId = input.agentId;
   if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder;
 
@@ -184,9 +184,11 @@ export async function updateAgentAssignment(
 
 // ---------------------------------------------------------------------------
 // Status transitions
-//   pending → in-progress (start)
-//   in-progress → done    (complete)
-//   in-progress ⇄ blocked (block / unblock)
+//   pending     → scheduled    (start: also assigns the next available slot)
+//   scheduled   → in-progress  (start: begin work on the assignment)
+//   blocked     → in-progress  (start: resume work)
+//   in-progress → done         (complete)
+//   in-progress ⇄ blocked      (block / unblock)
 // `unassign` is an action, not a transition — it clears slot links and forces
 // status back to pending regardless of current state.
 // ---------------------------------------------------------------------------
@@ -224,8 +226,98 @@ async function setStatus(
   return loadAgentAssignment(id);
 }
 
-export const startAgentAssignment = (id: string) =>
-  setStatus(id, 'in-progress', ['pending', 'blocked']);
+/**
+ * Find the next chronologically-available slot for an assignment.
+ *
+ * Preference order:
+ *   1) A pending, unassigned `agent_assignment` slot whose goalId matches the
+ *      assignment's resolved goal.
+ *   2) Any pending, unassigned `flex` slot.
+ *
+ * Only slots dated today or later are considered.
+ */
+async function findNextAvailableSlot(aaId: string) {
+  const todayDate = today();
+  const goalIdMap = await resolveGoalIdsForAssignments([aaId]);
+  const goalId = goalIdMap.get(aaId);
+
+  if (goalId) {
+    const [goalSlot] = await db
+      .select()
+      .from(scheduleSlots)
+      .where(
+        and(
+          eq(scheduleSlots.goalId, goalId),
+          eq(scheduleSlots.type, 'agent_assignment'),
+          eq(scheduleSlots.status, 'pending'),
+          isNull(scheduleSlots.agentAssignmentId),
+          gte(scheduleSlots.date, todayDate),
+        ),
+      )
+      .orderBy(asc(scheduleSlots.datetime))
+      .limit(1);
+    if (goalSlot) return goalSlot;
+  }
+
+  const [flexSlot] = await db
+    .select()
+    .from(scheduleSlots)
+    .where(
+      and(
+        eq(scheduleSlots.type, 'flex'),
+        eq(scheduleSlots.status, 'pending'),
+        isNull(scheduleSlots.agentAssignmentId),
+        gte(scheduleSlots.date, todayDate),
+      ),
+    )
+    .orderBy(asc(scheduleSlots.datetime))
+    .limit(1);
+  return flexSlot ?? null;
+}
+
+/**
+ * Start an assignment.
+ *
+ *   pending     → scheduled    (auto-assigns the next available slot)
+ *   scheduled   → in-progress
+ *   blocked     → in-progress
+ */
+export async function startAgentAssignment(id: string) {
+  const [existing] = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.id, id));
+  if (!existing) throw notFound('AgentAssignment', id);
+
+  if (existing.status === 'pending') {
+    const slot = await findNextAvailableSlot(id);
+    if (!slot) {
+      throw new AppError(
+        409,
+        'No available time slot to schedule this assignment. Generate or free up a slot first.',
+      );
+    }
+
+    const ts = now();
+    db.transaction(tx => {
+      tx.update(scheduleSlots)
+        .set({
+          agentAssignmentId: id,
+          type: 'agent_assignment',
+          status: 'pending',
+        })
+        .where(eq(scheduleSlots.id, slot.id))
+        .run();
+      tx.update(agentAssignments)
+        .set({ status: 'scheduled', updatedAt: ts })
+        .where(eq(agentAssignments.id, id))
+        .run();
+    });
+    return loadAgentAssignment(id);
+  }
+
+  return setStatus(id, 'in-progress', ['scheduled', 'blocked']);
+}
 
 export const completeAgentAssignment = (id: string) =>
   setStatus(id, 'done', ['in-progress']);

@@ -134,8 +134,8 @@ A chunk of work delegated to an agent. Goals/initiatives/tasks are human-driven;
 | `task_id` | `text` FK → `tasks.id` nullable | `ON DELETE CASCADE` |
 | `agent_id` | `text` FK → `agents.id` nullable | `ON DELETE SET NULL` |
 | `title` | `text` | short title for the assignment |
-| `instructions` | `text` | markdown brief handed to the agent |
-| `status` | `text` enum | `pending` \| `in-progress` \| `done` \| `blocked` — default `pending` |
+| `description` | `text` nullable | optional markdown brief handed to the agent |
+| `status` | `text` enum | `pending` \| `scheduled` \| `in-progress` \| `done` \| `blocked` — default `pending` |
 | `completed_at` | `text` nullable | ISO timestamp set when status → `done` |
 | `sort_order` | `integer` default 0 | |
 | `created_at` | `text` | ISO timestamp |

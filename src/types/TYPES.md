@@ -258,9 +258,9 @@ Tasks have no `BlockTaskSchema` — task lifecycle is binary (`pending` / `done`
 
 ```ts
 {
-  name: string (min 1),
-  agentId?: string,
-  instructions?: string,
+  title: string (min 1),
+  description?: string | null,
+  agentId?: string | null,
 }
 ```
 
@@ -270,14 +270,14 @@ Input for `POST /api/goals/:goalId/agent-assignments`, `POST /api/initiatives/:i
 
 ```ts
 {
-  name?: string,
+  title?: string,
+  description?: string | null,
   agentId?: string | null,
-  instructions?: string | null,
   sortOrder?: number (integer),
 }
 ```
 
-Input for `PATCH /api/agent-assignments/:id`. Passing `null` for `agentId` or `instructions` clears the field.
+Input for `PATCH /api/agent-assignments/:id`. Passing `null` for `agentId` or `description` clears the field.
 
 #### `BlockAgentAssignmentSchema`
 
@@ -301,7 +301,7 @@ These endpoints take no body — the action is fully described by the URL:
 #### `AGENT_ASSIGNMENT_STATUSES`
 
 ```ts
-const AGENT_ASSIGNMENT_STATUSES = ['pending', 'in-progress', 'done', 'blocked'] as const;
+const AGENT_ASSIGNMENT_STATUSES = ['pending', 'scheduled', 'in-progress', 'done', 'blocked'] as const;
 type AgentAssignmentStatus = (typeof AGENT_ASSIGNMENT_STATUSES)[number];
 ```
 

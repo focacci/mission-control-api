@@ -385,7 +385,7 @@ For each agent assignment id, resolves the goal it belongs to by walking the par
 updateAgentAssignment(id: string, input: UpdateAgentAssignmentInput): Promise<AgentAssignment>
 ```
 
-Updates `name`, `agentId`, `instructions`, and/or `sortOrder`. Passing `agentId: null` or `instructions: null` clears those fields.
+Updates `title`, `agentId`, `description`, and/or `sortOrder`. Passing `agentId: null` or `description: null` clears those fields.
 
 ### `startAgentAssignment(id)`
 
@@ -393,7 +393,13 @@ Updates `name`, `agentId`, `instructions`, and/or `sortOrder`. Passing `agentId:
 startAgentAssignment(id: string): Promise<AgentAssignment>
 ```
 
-Sets `status = in-progress`. Throws `AppError(409)` if the assignment is not currently `pending` or `blocked`.
+Starts an assignment. Behavior depends on current status:
+
+- `pending` → `scheduled`: finds the next chronologically available slot (preferring `agent_assignment` slots whose `goalId` matches the assignment's resolved goal, falling back to any pending `flex` slot dated today or later), links it via `agentAssignmentId`, marks the slot as `agent_assignment`, and sets the assignment status to `scheduled`. Throws `AppError(409)` if no slot is available.
+- `scheduled` → `in-progress`: begins work on the assignment.
+- `blocked` → `in-progress`: resumes a blocked assignment.
+
+Throws `AppError(409)` from any other status.
 
 ### `completeAgentAssignment(id)`
 

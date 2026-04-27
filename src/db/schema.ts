@@ -110,10 +110,10 @@ export const agentAssignments = sqliteTable('agent_assignments', {
   }),
   taskId: text('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
-  instructions: text('instructions').notNull(),
+  description: text('description'),
   agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
   status: text('status', {
-    enum: ['pending', 'in-progress', 'done', 'blocked'],
+    enum: ['pending', 'scheduled', 'in-progress', 'done', 'blocked'],
   })
     .notNull()
     .default('pending'),

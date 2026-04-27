@@ -145,14 +145,14 @@ Chunks of work delegated to an agent. They're the unit that gets scheduled into 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
 | `GET` | `/api/goals/:goalId/agent-assignments` | List assignments attached to a goal | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
-| `POST` | `/api/goals/:goalId/agent-assignments` | Create a goal-level assignment | `{ title, instructions, agentId? }` | `201 AgentAssignment` |
+| `POST` | `/api/goals/:goalId/agent-assignments` | Create a goal-level assignment | `{ title, description?, agentId? }` | `201 AgentAssignment` |
 | `GET` | `/api/initiatives/:initiativeId/agent-assignments` | List assignments attached to an initiative | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
-| `POST` | `/api/initiatives/:initiativeId/agent-assignments` | Create an initiative-level assignment | `{ title, instructions, agentId? }` | `201 AgentAssignment` |
+| `POST` | `/api/initiatives/:initiativeId/agent-assignments` | Create an initiative-level assignment | `{ title, description?, agentId? }` | `201 AgentAssignment` |
 | `GET` | `/api/tasks/:taskId/agent-assignments` | List assignments attached to a task | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
-| `POST` | `/api/tasks/:taskId/agent-assignments` | Create a task-level assignment | `{ title, instructions, agentId? }` | `201 AgentAssignment` |
+| `POST` | `/api/tasks/:taskId/agent-assignments` | Create a task-level assignment | `{ title, description?, agentId? }` | `201 AgentAssignment` |
 | `GET` | `/api/agent-assignments/:id` | Get a single assignment | — | `AgentAssignment & { slots: ScheduleSlot[] }` |
-| `PATCH` | `/api/agent-assignments/:id` | Update editable fields | `{ title?, instructions?, agentId?, sortOrder? }` | `AgentAssignment` |
-| `POST` | `/api/agent-assignments/:id/start` | Transition status → `in-progress` (from `pending` or `blocked`) | — | `AgentAssignment` |
+| `PATCH` | `/api/agent-assignments/:id` | Update editable fields | `{ title?, description?, agentId?, sortOrder? }` | `AgentAssignment` |
+| `POST` | `/api/agent-assignments/:id/start` | Start the assignment. From `pending`: auto-assigns the next available slot and transitions → `scheduled`. From `scheduled` or `blocked`: transitions → `in-progress`. Returns 409 from `pending` if no slot is available. | — | `AgentAssignment` |
 | `POST` | `/api/agent-assignments/:id/complete` | Transition status → `done` (from `in-progress`) and stamp `completedAt` | — | `AgentAssignment` |
 | `POST` | `/api/agent-assignments/:id/block` | Transition status → `blocked` (from `in-progress`) | `{ reason? }` | `AgentAssignment` |
 | `POST` | `/api/agent-assignments/:id/reopen` | Transition status → `pending` (from `done` or `blocked`); clears `completedAt` | — | `AgentAssignment` |
