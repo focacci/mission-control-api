@@ -15,6 +15,7 @@ import {
   AppError,
   type CreateAgentAssignmentInput,
   type UpdateAgentAssignmentInput,
+  type AgentAssignmentStatus,
 } from '../types/index.types.js';
 
 // ---------------------------------------------------------------------------
@@ -145,7 +146,7 @@ export async function createAgentAssignmentForParent(
     title: input.title,
     instructions: input.instructions,
     agentId: input.agentId ?? null,
-    completed: false,
+    status: 'pending' as AgentAssignmentStatus,
     completedAt: null,
     sortOrder: existing.length,
     createdAt: today(),
@@ -181,20 +182,83 @@ export async function updateAgentAssignment(
   return loadAgentAssignment(id);
 }
 
-export async function completeAgentAssignment(id: string) {
+// ---------------------------------------------------------------------------
+// Status transitions
+//   pending → in-progress (start)
+//   in-progress → done    (complete)
+//   in-progress ⇄ blocked (block / unblock)
+// `unassign` is an action, not a transition — it clears slot links and forces
+// status back to pending regardless of current state.
+// ---------------------------------------------------------------------------
+
+async function setStatus(
+  id: string,
+  next: AgentAssignmentStatus,
+  allowedFrom: AgentAssignmentStatus[],
+) {
   const [existing] = await db
     .select()
     .from(agentAssignments)
     .where(eq(agentAssignments.id, id));
   if (!existing) throw notFound('AgentAssignment', id);
 
-  if (existing.completed) return loadAgentAssignment(id);
+  if (existing.status === next) return loadAgentAssignment(id);
+
+  if (!allowedFrom.includes(existing.status as AgentAssignmentStatus)) {
+    throw new AppError(
+      409,
+      `Cannot transition AgentAssignment from '${existing.status}' to '${next}'`,
+    );
+  }
 
   const ts = now();
   await db
     .update(agentAssignments)
-    .set({ completed: true, completedAt: ts, updatedAt: ts })
+    .set({
+      status: next,
+      completedAt: next === 'done' ? ts : null,
+      updatedAt: ts,
+    })
     .where(eq(agentAssignments.id, id));
+
+  return loadAgentAssignment(id);
+}
+
+export const startAgentAssignment = (id: string) =>
+  setStatus(id, 'in-progress', ['pending', 'blocked']);
+
+export const completeAgentAssignment = (id: string) =>
+  setStatus(id, 'done', ['in-progress']);
+
+export const blockAgentAssignment = (id: string) =>
+  setStatus(id, 'blocked', ['in-progress']);
+
+export const reopenAgentAssignment = (id: string) =>
+  setStatus(id, 'pending', ['done', 'blocked']);
+
+/**
+ * Unassign — clears any scheduled slot links and resets status to `pending`.
+ * Works from any state. The AA itself is preserved; only the schedule
+ * association is removed.
+ */
+export async function unassignAgentAssignment(id: string) {
+  const [existing] = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.id, id));
+  if (!existing) throw notFound('AgentAssignment', id);
+
+  const ts = now();
+  db.transaction(tx => {
+    tx.update(scheduleSlots)
+      .set({ agentAssignmentId: null })
+      .where(eq(scheduleSlots.agentAssignmentId, id))
+      .run();
+    tx.update(agentAssignments)
+      .set({ status: 'pending', completedAt: null, updatedAt: ts })
+      .where(eq(agentAssignments.id, id))
+      .run();
+  });
 
   return loadAgentAssignment(id);
 }

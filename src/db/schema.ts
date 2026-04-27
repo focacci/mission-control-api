@@ -55,7 +55,7 @@ export const tasks = sqliteTable('tasks', {
     onDelete: 'set null',
   }),
   status: text('status', {
-    enum: ['pending', 'in-progress', 'done', 'blocked', 'cancelled'],
+    enum: ['pending', 'done'],
   })
     .notNull()
     .default('pending'),
@@ -112,7 +112,11 @@ export const agentAssignments = sqliteTable('agent_assignments', {
   title: text('title').notNull(),
   instructions: text('instructions').notNull(),
   agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
-  completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  status: text('status', {
+    enum: ['pending', 'in-progress', 'done', 'blocked'],
+  })
+    .notNull()
+    .default('pending'),
   completedAt: text('completed_at'),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),

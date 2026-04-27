@@ -5,7 +5,6 @@ import {
   CreateTaskSchema,
   UpdateTaskSchema,
   DoneTaskSchema,
-  BlockTaskSchema,
   AddRequirementSchema,
 } from '../types/index.types.js';
 
@@ -44,12 +43,6 @@ export async function tasksRoutes(app: FastifyInstance) {
     return tasksService.updateTask(id, parsed);
   });
 
-  // POST /api/tasks/:id/start
-  app.post('/api/tasks/:id/start', async request => {
-    const { id } = request.params as { id: string };
-    return tasksService.startTask(id);
-  });
-
   // POST /api/tasks/:id/done
   app.post('/api/tasks/:id/done', async request => {
     const { id } = request.params as { id: string };
@@ -57,17 +50,10 @@ export async function tasksRoutes(app: FastifyInstance) {
     return tasksService.doneTask(id, parsed);
   });
 
-  // POST /api/tasks/:id/block
-  app.post('/api/tasks/:id/block', async request => {
+  // POST /api/tasks/:id/reopen
+  app.post('/api/tasks/:id/reopen', async request => {
     const { id } = request.params as { id: string };
-    const parsed = BlockTaskSchema.parse(request.body);
-    return tasksService.blockTask(id, parsed);
-  });
-
-  // POST /api/tasks/:id/cancel
-  app.post('/api/tasks/:id/cancel', async request => {
-    const { id } = request.params as { id: string };
-    return tasksService.cancelTask(id);
+    return tasksService.reopenTask(id);
   });
 
   // DELETE /api/tasks/:id

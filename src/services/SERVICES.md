@@ -20,10 +20,8 @@
   - [`getTask`](#gettaskid)
   - [`createTask`](#createtaskinput)
   - [`updateTask`](#updatetaskid-input)
-  - [`startTask`](#starttaskid)
   - [`doneTask`](#donetaskid-input)
-  - [`blockTask`](#blocktaskid-input)
-  - [`cancelTask`](#canceltaskid)
+  - [`reopenTask`](#reopentaskid)
   - [`deleteTask`](#deletetaskid)
 - [Requirements Service](#requirements-service)
   - [`addRequirement`](#addrequirementtaskid-description)
@@ -41,7 +39,11 @@
   - [`createAgentAssignmentForParent`](#createagentassignmentforparentkind-parentid-input)
   - [`resolveGoalIdsForAssignments`](#resolvegoalidsforassignmentsaaids)
   - [`updateAgentAssignment`](#updateagentassignmentid-input)
+  - [`startAgentAssignment`](#startagentassignmentid)
   - [`completeAgentAssignment`](#completeagentassignmentid)
+  - [`blockAgentAssignment`](#blockagentassignmentid)
+  - [`reopenAgentAssignment`](#reopenagentassignmentid)
+  - [`unassignAgentAssignment`](#unassignagentassignmentid)
   - [`deleteAgentAssignment`](#deleteagentassignmentid)
 - [Schedule Service](#schedule-service)
   - [`getTodaySlots`](#gettodayslots)
@@ -263,14 +265,6 @@ updateTask(id: string, input: UpdateTaskInput): Promise<TaskDetail>
 
 Updates `name`, `objective`, `status`, and/or `sortOrder`. Recomputes `displayName` if `name` changes.
 
-### `startTask(id)`
-
-```ts
-startTask(id: string): Promise<TaskDetail>
-```
-
-Sets `status → in-progress`. Throws `AppError(409)` if the task is already `done` or `cancelled`.
-
 ### `doneTask(id, input)`
 
 ```ts
@@ -279,23 +273,14 @@ doneTask(id: string, input: DoneTaskInput): Promise<TaskDetail>
 
 - Validates that all requirements are checked. Returns `AppError(400)` with `details.incomplete` if any are unchecked.
 - Sets `status = done`, records `summary` and `completedAt`.
-- Throws `AppError(409)` if the task is `cancelled`.
 
-### `blockTask(id, input)`
-
-```ts
-blockTask(id: string, input: BlockTaskInput): Promise<TaskDetail>
-```
-
-Sets `status = blocked` and stores the block reason in `summary`. Throws `AppError(409)` if the task is `done` or `cancelled`.
-
-### `cancelTask(id)`
+### `reopenTask(id)`
 
 ```ts
-cancelTask(id: string): Promise<TaskDetail>
+reopenTask(id: string): Promise<TaskDetail>
 ```
 
-Sets `status = cancelled`. Throws `AppError(409)` if the task is already `done`.
+Sets `status = pending` and clears `completedAt`. Idempotent.
 
 ### `deleteTask(id)`
 
@@ -384,7 +369,7 @@ createAgentAssignmentForParent(
 ): Promise<AgentAssignment>
 ```
 
-Inserts a new assignment, populating only the matching parent column (`goalId` / `initiativeId` / `taskId`) and leaving the other two `null`. Sets `completed: false`, `sortOrder = current count`, and optional `agentId`. Throws `AppError(404)` if the parent doesn't exist. `createAgentAssignment(taskId, input)` is the legacy task-only wrapper.
+Inserts a new assignment, populating only the matching parent column (`goalId` / `initiativeId` / `taskId`) and leaving the other two `null`. Sets `status: 'pending'`, `sortOrder = current count`, and optional `agentId`. Throws `AppError(404)` if the parent doesn't exist. `createAgentAssignment(taskId, input)` is the legacy task-only wrapper.
 
 ### `resolveGoalIdsForAssignments(aaIds)`
 
@@ -402,13 +387,45 @@ updateAgentAssignment(id: string, input: UpdateAgentAssignmentInput): Promise<Ag
 
 Updates `name`, `agentId`, `instructions`, and/or `sortOrder`. Passing `agentId: null` or `instructions: null` clears those fields.
 
+### `startAgentAssignment(id)`
+
+```ts
+startAgentAssignment(id: string): Promise<AgentAssignment>
+```
+
+Sets `status = in-progress`. Throws `AppError(409)` if the assignment is not currently `pending` or `blocked`.
+
 ### `completeAgentAssignment(id)`
 
 ```ts
 completeAgentAssignment(id: string): Promise<AgentAssignment>
 ```
 
-Sets `completed = true` and stamps `completedAt = now()`. Idempotent.
+Sets `status = done` and stamps `completedAt = now()`. Throws `AppError(409)` if the assignment is not currently `in-progress`.
+
+### `blockAgentAssignment(id)`
+
+```ts
+blockAgentAssignment(id: string): Promise<AgentAssignment>
+```
+
+Sets `status = blocked`. Throws `AppError(409)` if the assignment is not currently `in-progress`.
+
+### `reopenAgentAssignment(id)`
+
+```ts
+reopenAgentAssignment(id: string): Promise<AgentAssignment>
+```
+
+Sets `status = pending` and clears `completedAt`. Throws `AppError(409)` if the assignment is not currently `done` or `blocked`.
+
+### `unassignAgentAssignment(id)`
+
+```ts
+unassignAgentAssignment(id: string): Promise<AgentAssignment>
+```
+
+Clears every schedule slot that references this assignment back to `type = 'flex'`, `agentAssignmentId = null`, `status = 'pending'`, then resets the AA itself to `status = 'pending'` with `completedAt = null`. Works from any state; does not delete the assignment. Used when a user reports a parent task done in real life and the agent wants to clear remaining scheduled work.
 
 ### `deleteAgentAssignment(id)`
 
@@ -532,7 +549,7 @@ getBoard(): Promise<{ goals: GoalWithHierarchy[], stats, weekSummary | null }>
 
 Returns the full board state:
 - All goals sorted by focus order, each with nested initiatives and their tasks.
-- `stats`: aggregate task counts (`total`, `pending`, `inProgress`, `done`, `blocked`, `cancelled`). Cancelled tasks are excluded from `total`.
+- `stats`: aggregate task counts (`total`, `pending`, `done`).
 - `weekSummary`: current week plan with slot counts, or `null` if no plan for this week.
 
 ---

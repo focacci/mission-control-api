@@ -261,9 +261,7 @@ async function importTasks(initiativeNameToId: Map<string, string>): Promise<num
     const content = readFileSync(join(dir, file), 'utf8');
     const { meta, body } = parseFrontmatter(content);
 
-    const rawStatus = meta['status'] ?? (done ? 'done' : 'pending');
-    const status = (rawStatus === 'assigned' ? 'pending' : rawStatus) as
-      'pending' | 'in-progress' | 'done' | 'blocked' | 'cancelled';
+    const status: 'pending' | 'done' = done ? 'done' : 'pending';
 
     const initWikilink = meta['initiative'] ?? '';
     const initDisplayName = extractWikilink(initWikilink);

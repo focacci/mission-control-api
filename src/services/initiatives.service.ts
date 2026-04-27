@@ -121,17 +121,6 @@ export async function completeInitiative(id: string) {
 
   const timestamp = now();
 
-  // Cancel all non-terminal tasks under this initiative
-  await db
-    .update(tasks)
-    .set({ status: 'cancelled', updatedAt: timestamp })
-    .where(
-      and(
-        eq(tasks.initiativeId, id),
-        inArray(tasks.status, ['pending', 'in-progress', 'blocked']),
-      ),
-    );
-
   await db
     .update(initiatives)
     .set({ status: 'completed', updatedAt: timestamp })

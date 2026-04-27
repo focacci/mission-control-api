@@ -275,7 +275,7 @@ export async function generateWeekPlan(weekStart?: string) {
     const pendingAAs = await db
       .select()
       .from(agentAssignments)
-      .where(eq(agentAssignments.completed, false))
+      .where(inArray(agentAssignments.status, ['pending', 'in-progress', 'blocked']))
       .orderBy(asc(agentAssignments.sortOrder));
 
     const aaGoalMap = await resolveGoalIdsForAssignments(pendingAAs.map(a => a.id));
@@ -406,7 +406,7 @@ export async function assignAgentAssignment(agentAssignmentId: string, slotId: s
     .where(eq(agentAssignments.id, agentAssignmentId));
   if (!aa) throw notFound('AgentAssignment', agentAssignmentId);
 
-  if (aa.completed) {
+  if (aa.status === 'done') {
     throw new AppError(400, 'Cannot assign a completed agent assignment');
   }
 

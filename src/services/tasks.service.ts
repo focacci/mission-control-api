@@ -17,7 +17,6 @@ import {
   type CreateTaskInput,
   type UpdateTaskInput,
   type DoneTaskInput,
-  type BlockTaskInput,
 } from '../types/index.types.js';
 
 // ---------------------------------------------------------------------------
@@ -85,7 +84,7 @@ async function loadTaskDetail(id: string) {
 // Tasks
 // ---------------------------------------------------------------------------
 
-const VALID_STATUS = ['pending', 'in-progress', 'done', 'blocked', 'cancelled'] as const;
+const VALID_STATUS = ['pending', 'done'] as const;
 type TaskStatus = (typeof VALID_STATUS)[number];
 
 export async function listTasks(opts: {
@@ -232,29 +231,11 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
   return loadTaskDetail(id);
 }
 
-export async function startTask(id: string) {
-  const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
-  if (!existing) throw notFound('Task', id);
-
-  if (existing.status === 'done' || existing.status === 'cancelled') {
-    throw new AppError(409, `Cannot start a task with status '${existing.status}'`);
-  }
-
-  await db
-    .update(tasks)
-    .set({ status: 'in-progress', updatedAt: now() })
-    .where(eq(tasks.id, id));
-
-  return loadTaskDetail(id);
-}
-
 export async function doneTask(id: string, input: DoneTaskInput) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
 
-  if (existing.status === 'cancelled') {
-    throw new AppError(409, `Cannot complete a cancelled task`);
-  }
+  if (existing.status === 'done') return loadTaskDetail(id);
 
   const reqs = await db
     .select()
@@ -278,33 +259,15 @@ export async function doneTask(id: string, input: DoneTaskInput) {
   return loadTaskDetail(id);
 }
 
-export async function blockTask(id: string, input: BlockTaskInput) {
+export async function reopenTask(id: string) {
   const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
   if (!existing) throw notFound('Task', id);
 
-  if (existing.status === 'done' || existing.status === 'cancelled') {
-    throw new AppError(409, `Cannot block a task with status '${existing.status}'`);
-  }
+  if (existing.status === 'pending') return loadTaskDetail(id);
 
   await db
     .update(tasks)
-    .set({ status: 'blocked', summary: input.reason, updatedAt: now() })
-    .where(eq(tasks.id, id));
-
-  return loadTaskDetail(id);
-}
-
-export async function cancelTask(id: string) {
-  const [existing] = await db.select().from(tasks).where(eq(tasks.id, id));
-  if (!existing) throw notFound('Task', id);
-
-  if (existing.status === 'done') {
-    throw new AppError(409, `Cannot cancel a completed task`);
-  }
-
-  await db
-    .update(tasks)
-    .set({ status: 'cancelled', updatedAt: now() })
+    .set({ status: 'pending', completedAt: null, updatedAt: now() })
     .where(eq(tasks.id, id));
 
   return loadTaskDetail(id);

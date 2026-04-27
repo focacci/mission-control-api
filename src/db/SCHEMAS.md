@@ -82,9 +82,9 @@ A discrete unit of work belonging to an initiative.
 | `name` | `text` UNIQUE | |
 | `display_name` | `text` | derived |
 | `initiative_id` | `text` FK → `initiatives.id` | `ON DELETE SET NULL` |
-| `status` | `text` enum | `pending` \| `in-progress` \| `done` \| `blocked` \| `cancelled` |
+| `status` | `text` enum | `pending` \| `done` |
 | `objective` | `text` | what this task accomplishes (required) |
-| `summary` | `text` nullable | filled on completion (or used for block reason) |
+| `summary` | `text` nullable | filled on completion |
 | `sort_order` | `integer` default 0 | |
 | `created_at` | `text` | ISO date |
 | `updated_at` | `text` | ISO timestamp |
@@ -135,8 +135,8 @@ A chunk of work delegated to an agent. Goals/initiatives/tasks are human-driven;
 | `agent_id` | `text` FK → `agents.id` nullable | `ON DELETE SET NULL` |
 | `title` | `text` | short title for the assignment |
 | `instructions` | `text` | markdown brief handed to the agent |
-| `completed` | `integer` boolean | default `false` |
-| `completed_at` | `text` nullable | ISO timestamp set when `completed → true` |
+| `status` | `text` enum | `pending` \| `in-progress` \| `done` \| `blocked` — default `pending` |
+| `completed_at` | `text` nullable | ISO timestamp set when status → `done` |
 | `sort_order` | `integer` default 0 | |
 | `created_at` | `text` | ISO timestamp |
 | `updated_at` | `text` | ISO timestamp |

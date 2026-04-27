@@ -69,14 +69,10 @@ export async function getBoard() {
 // ---------------------------------------------------------------------------
 
 function computeStats(allTasks: (typeof tasks.$inferSelect)[]) {
-  const active = allTasks.filter(t => t.status !== 'cancelled');
   return {
-    total: active.length,
-    pending: active.filter(t => t.status === 'pending').length,
-    inProgress: active.filter(t => t.status === 'in-progress').length,
-    done: active.filter(t => t.status === 'done').length,
-    blocked: active.filter(t => t.status === 'blocked').length,
-    cancelled: allTasks.filter(t => t.status === 'cancelled').length,
+    total: allTasks.length,
+    pending: allTasks.filter(t => t.status === 'pending').length,
+    done: allTasks.filter(t => t.status === 'done').length,
   };
 }
 

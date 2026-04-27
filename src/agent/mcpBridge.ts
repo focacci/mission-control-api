@@ -98,7 +98,7 @@ export const TOOLS = [
         action: {
           type: 'string',
           enum: [
-            'list', 'get', 'create', 'update', 'start', 'complete', 'block', 'cancel', 'delete',
+            'list', 'get', 'create', 'update', 'complete', 'reopen', 'delete',
           ],
           description: 'Operation to perform.',
         },
@@ -108,12 +108,11 @@ export const TOOLS = [
         objective: { type: 'string', description: 'Definition of done (create/update).' },
         status: {
           type: 'string',
-          enum: ['pending', 'in-progress', 'done', 'blocked', 'cancelled'],
+          enum: ['pending', 'done'],
           description: 'Status filter (list) or value (update).',
         },
         sortOrder: { type: 'number', description: 'Sort position (update only).' },
         summary: { type: 'string', description: 'Completion summary (complete action).' },
-        reason: { type: 'string', description: 'Block reason (block action).' },
         requirements: {
           type: 'array',
           items: { type: 'string' },
@@ -151,16 +150,16 @@ export const TOOLS = [
   {
     name: 'agent_assignments',
     description:
-      'Manage agent assignments (discrete agent work attached to a goal, initiative, or task). Actions: list, get, create, update, complete, delete. For list/create, supply exactly one parent: goalId, initiativeId, or taskId.',
+      'Manage agent assignments (discrete agent work attached to a goal, initiative, or task). Actions: list, get, create, update, start, complete, block, reopen, unassign, delete. For list/create, supply exactly one parent: goalId, initiativeId, or taskId. `unassign` clears any scheduled slot links and resets status to pending.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'get', 'create', 'update', 'complete', 'delete'],
+          enum: ['list', 'get', 'create', 'update', 'start', 'complete', 'block', 'reopen', 'unassign', 'delete'],
           description: 'Operation to perform.',
         },
-        id: { type: 'string', description: 'Agent assignment ID (required for get/update/complete/delete).' },
+        id: { type: 'string', description: 'Agent assignment ID (required for non-list/create actions).' },
         goalId: { type: 'string', description: 'Parent goal ID (list/create).' },
         initiativeId: { type: 'string', description: 'Parent initiative ID (list/create).' },
         taskId: { type: 'string', description: 'Parent task ID (list/create).' },
@@ -541,18 +540,12 @@ async function dispatchTasks(action: string, args: Args): Promise<unknown> {
         status: optArg<string>(args, 'status') as any,
         sortOrder: optArg<number>(args, 'sortOrder'),
       });
-    case 'start':
-      return tasksService.startTask(requireArg<string>(args, 'id'));
     case 'complete':
       return tasksService.doneTask(requireArg<string>(args, 'id'), {
         summary: requireArg<string>(args, 'summary'),
       });
-    case 'block':
-      return tasksService.blockTask(requireArg<string>(args, 'id'), {
-        reason: requireArg<string>(args, 'reason'),
-      });
-    case 'cancel':
-      return tasksService.cancelTask(requireArg<string>(args, 'id'));
+    case 'reopen':
+      return tasksService.reopenTask(requireArg<string>(args, 'id'));
     case 'delete':
       await tasksService.deleteTask(requireArg<string>(args, 'id'));
       return { deleted: true };
@@ -654,8 +647,16 @@ async function dispatchAgentAssignments(action: string, args: Args): Promise<unk
         agentId: optArg<string | null>(args, 'agentId'),
         sortOrder: optArg<number>(args, 'sortOrder'),
       });
+    case 'start':
+      return aaService.startAgentAssignment(requireArg<string>(args, 'id'));
     case 'complete':
       return aaService.completeAgentAssignment(requireArg<string>(args, 'id'));
+    case 'block':
+      return aaService.blockAgentAssignment(requireArg<string>(args, 'id'));
+    case 'reopen':
+      return aaService.reopenAgentAssignment(requireArg<string>(args, 'id'));
+    case 'unassign':
+      return aaService.unassignAgentAssignment(requireArg<string>(args, 'id'));
     case 'delete':
       await aaService.deleteAgentAssignment(requireArg<string>(args, 'id'));
       return { deleted: true };

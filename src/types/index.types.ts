@@ -104,16 +104,12 @@ export const CreateTaskSchema = z.object({
 export const UpdateTaskSchema = z.object({
   name: z.string().min(1).optional(),
   objective: z.string().min(1).optional(),
-  status: z.enum(['pending', 'in-progress', 'done', 'blocked', 'cancelled']).optional(),
+  status: z.enum(['pending', 'done']).optional(),
   sortOrder: z.number().int().optional(),
 });
 
 export const DoneTaskSchema = z.object({
   summary: z.string().min(1),
-});
-
-export const BlockTaskSchema = z.object({
-  reason: z.string().min(1),
 });
 
 // Requirements
@@ -137,6 +133,8 @@ export const UpdateRequirementTestSchema = z.object({
 });
 
 // Agent Assignments
+export const AGENT_ASSIGNMENT_STATUSES = ['pending', 'in-progress', 'done', 'blocked'] as const;
+
 export const CreateAgentAssignmentSchema = z.object({
   title: z.string().min(1),
   instructions: z.string().min(1),
@@ -148,6 +146,10 @@ export const UpdateAgentAssignmentSchema = z.object({
   instructions: z.string().min(1).optional(),
   agentId: z.string().nullable().optional(),
   sortOrder: z.number().int().optional(),
+});
+
+export const BlockAgentAssignmentSchema = z.object({
+  reason: z.string().min(1).optional(),
 });
 
 // Slot Outputs
@@ -325,7 +327,6 @@ export type UpdateInitiativeInput = z.infer<typeof UpdateInitiativeSchema>;
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
 export type DoneTaskInput = z.infer<typeof DoneTaskSchema>;
-export type BlockTaskInput = z.infer<typeof BlockTaskSchema>;
 export type GenerateWeekPlanInput = z.infer<typeof GenerateWeekPlanSchema>;
 export type UpdateSlotInput = z.infer<typeof UpdateSlotSchema>;
 export type DoneSlotInput = z.infer<typeof DoneSlotSchema>;
@@ -337,6 +338,8 @@ export type AddRequirementTestInput = z.infer<typeof AddRequirementTestSchema>;
 export type UpdateRequirementTestInput = z.infer<typeof UpdateRequirementTestSchema>;
 export type CreateAgentAssignmentInput = z.infer<typeof CreateAgentAssignmentSchema>;
 export type UpdateAgentAssignmentInput = z.infer<typeof UpdateAgentAssignmentSchema>;
+export type BlockAgentAssignmentInput = z.infer<typeof BlockAgentAssignmentSchema>;
+export type AgentAssignmentStatus = (typeof AGENT_ASSIGNMENT_STATUSES)[number];
 export type AddSlotOutputInput = z.infer<typeof AddSlotOutputSchema>;
 export type CreateAgentInput = z.infer<typeof CreateAgentSchema>;
 export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;

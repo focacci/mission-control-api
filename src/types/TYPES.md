@@ -201,7 +201,7 @@ All schemas are used directly in route handlers via `.parse(request.body)`.
 {
   name?: string,
   objective?: string,
-  status?: 'pending' | 'in-progress' | 'done' | 'blocked' | 'cancelled',
+  status?: 'pending' | 'done',
   sortOrder?: number (integer),
 }
 ```
@@ -216,15 +216,7 @@ Used by `POST /api/tasks/:id/done`.
 }
 ```
 
-#### `BlockTaskSchema`
-
-Used by `POST /api/tasks/:id/block`.
-
-```ts
-{
-  reason: string (min 1),
-}
-```
+Tasks have no `BlockTaskSchema` — task lifecycle is binary (`pending` / `done`). Block/in-progress/etc. live on agent assignments.
 
 ---
 
@@ -286,6 +278,32 @@ Input for `POST /api/goals/:goalId/agent-assignments`, `POST /api/initiatives/:i
 ```
 
 Input for `PATCH /api/agent-assignments/:id`. Passing `null` for `agentId` or `instructions` clears the field.
+
+#### `BlockAgentAssignmentSchema`
+
+Used by `POST /api/agent-assignments/:id/block`.
+
+```ts
+{
+  reason?: string,
+}
+```
+
+#### Lifecycle endpoints (no body)
+
+These endpoints take no body — the action is fully described by the URL:
+
+- `POST /api/agent-assignments/:id/start` → `pending` | `blocked` → `in-progress`
+- `POST /api/agent-assignments/:id/complete` → `in-progress` → `done`
+- `POST /api/agent-assignments/:id/reopen` → `done` | `blocked` → `pending`
+- `POST /api/agent-assignments/:id/unassign` → any → `pending`, also clears every schedule slot referencing this AA
+
+#### `AGENT_ASSIGNMENT_STATUSES`
+
+```ts
+const AGENT_ASSIGNMENT_STATUSES = ['pending', 'in-progress', 'done', 'blocked'] as const;
+type AgentAssignmentStatus = (typeof AGENT_ASSIGNMENT_STATUSES)[number];
+```
 
 ---
 
@@ -638,7 +656,7 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `CreateTaskInput` | `CreateTaskSchema` |
 | `UpdateTaskInput` | `UpdateTaskSchema` |
 | `DoneTaskInput` | `DoneTaskSchema` |
-| `BlockTaskInput` | `BlockTaskSchema` |
+| `BlockAgentAssignmentInput` | `BlockAgentAssignmentSchema` |
 | `GenerateWeekPlanInput` | `GenerateWeekPlanSchema` |
 | `UpdateSlotInput` | `UpdateSlotSchema` |
 | `DoneSlotInput` | `DoneSlotSchema` |

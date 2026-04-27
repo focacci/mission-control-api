@@ -61,10 +61,34 @@ export async function agentAssignmentsRoutes(app: FastifyInstance) {
     return aaService.updateAgentAssignment(id, parsed);
   });
 
+  // POST /api/agent-assignments/:id/start
+  app.post('/api/agent-assignments/:id/start', async request => {
+    const { id } = request.params as { id: string };
+    return aaService.startAgentAssignment(id);
+  });
+
   // POST /api/agent-assignments/:id/complete
   app.post('/api/agent-assignments/:id/complete', async request => {
     const { id } = request.params as { id: string };
     return aaService.completeAgentAssignment(id);
+  });
+
+  // POST /api/agent-assignments/:id/block
+  app.post('/api/agent-assignments/:id/block', async request => {
+    const { id } = request.params as { id: string };
+    return aaService.blockAgentAssignment(id);
+  });
+
+  // POST /api/agent-assignments/:id/reopen
+  app.post('/api/agent-assignments/:id/reopen', async request => {
+    const { id } = request.params as { id: string };
+    return aaService.reopenAgentAssignment(id);
+  });
+
+  // POST /api/agent-assignments/:id/unassign
+  app.post('/api/agent-assignments/:id/unassign', async request => {
+    const { id } = request.params as { id: string };
+    return aaService.unassignAgentAssignment(id);
   });
 
   // DELETE /api/agent-assignments/:id

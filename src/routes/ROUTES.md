@@ -96,12 +96,12 @@ Tasks are purely human-driven units of work. Verification lives on requirements 
 
 ### Lifecycle Actions
 
+Tasks have a binary lifecycle: `pending` and `done`. The user owns "done" — they decide when their objective has been achieved. Rich agent-side lifecycle (start/block/etc.) lives on agent assignments.
+
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
-| `POST` | `/api/tasks/:id/start` | Transition status → `in-progress` | — | `Task` |
 | `POST` | `/api/tasks/:id/done` | Complete task (validates all requirements checked) | `{ summary }` | `Task` |
-| `POST` | `/api/tasks/:id/block` | Block task with a reason | `{ reason }` | `Task` |
-| `POST` | `/api/tasks/:id/cancel` | Cancel task | — | `Task` |
+| `POST` | `/api/tasks/:id/reopen` | Set status → `pending`, clear `completedAt` | — | `Task` |
 
 **Done validation:** returns `400` if any requirement is unchecked, with a `details.incomplete` array listing the unchecked items.
 
@@ -152,7 +152,11 @@ Chunks of work delegated to an agent. They're the unit that gets scheduled into 
 | `POST` | `/api/tasks/:taskId/agent-assignments` | Create a task-level assignment | `{ title, instructions, agentId? }` | `201 AgentAssignment` |
 | `GET` | `/api/agent-assignments/:id` | Get a single assignment | — | `AgentAssignment & { slots: ScheduleSlot[] }` |
 | `PATCH` | `/api/agent-assignments/:id` | Update editable fields | `{ title?, instructions?, agentId?, sortOrder? }` | `AgentAssignment` |
-| `POST` | `/api/agent-assignments/:id/complete` | Set `completed: true` and stamp `completedAt` | — | `AgentAssignment` |
+| `POST` | `/api/agent-assignments/:id/start` | Transition status → `in-progress` (from `pending` or `blocked`) | — | `AgentAssignment` |
+| `POST` | `/api/agent-assignments/:id/complete` | Transition status → `done` (from `in-progress`) and stamp `completedAt` | — | `AgentAssignment` |
+| `POST` | `/api/agent-assignments/:id/block` | Transition status → `blocked` (from `in-progress`) | `{ reason? }` | `AgentAssignment` |
+| `POST` | `/api/agent-assignments/:id/reopen` | Transition status → `pending` (from `done` or `blocked`); clears `completedAt` | — | `AgentAssignment` |
+| `POST` | `/api/agent-assignments/:id/unassign` | Clear all schedule slots referencing this AA back to `flex` and reset status → `pending`. Works from any state. | — | `AgentAssignment` |
 | `DELETE` | `/api/agent-assignments/:id` | Hard-delete and clear any slots referencing it back to `flex` | — | `204` |
 
 **Notes:**
@@ -201,7 +205,7 @@ Unified board view and Obsidian refresh.
 
 **Board response shape:**
 - `goals[].initiatives[].tasks[]` — full hierarchy
-- `stats` — `{ total, pending, inProgress, done, blocked, cancelled }`
+- `stats` — `{ total, pending, done }`
 - `weekSummary` — `{ weekPlan, totalSlots, assignmentSlots, doneSlots, skippedSlots, pendingSlots, allocations }` or `null` if no plan for current week
 
 ---
