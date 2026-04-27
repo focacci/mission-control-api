@@ -19,6 +19,7 @@
   - [Requirement Schemas](#requirement-schemas)
   - [Requirement Test Schemas](#requirement-test-schemas)
   - [Agent Assignment Schemas](#agent-assignment-schemas)
+  - [Agent Output Schemas](#agent-output-schemas)
   - [Schedule Schemas](#schedule-schemas)
   - [Slot Output Schema](#slot-output-schema)
   - [Agent Schemas](#agent-schemas)
@@ -345,6 +346,66 @@ type AgentAssignmentStatus = (typeof AGENT_ASSIGNMENT_STATUSES)[number];
 
 ---
 
+### Agent Output Schemas
+
+Schemas governing the structured record of one autonomous Agent Assignment run. See `agent_outputs` and `agent_output_steps` in SCHEMAS.md.
+
+#### `AGENT_OUTPUT_STATUSES`
+
+```ts
+const AGENT_OUTPUT_STATUSES = ['running', 'complete', 'error', 'cancelled'] as const;
+type AgentOutputStatus = (typeof AGENT_OUTPUT_STATUSES)[number];
+```
+
+#### `AGENT_OUTPUT_STEP_KINDS`
+
+```ts
+const AGENT_OUTPUT_STEP_KINDS = ['thinking', 'tool_call', 'text'] as const;
+type AgentOutputStepKind = (typeof AGENT_OUTPUT_STEP_KINDS)[number];
+```
+
+#### `CreateAgentOutputSchema`
+
+```ts
+{ input: string (min 1), agentId?: string | null, model?: string | null }
+```
+
+Opens a new running output. `agentId` defaults to the parent assignment's `agentId`.
+
+#### `AppendAgentOutputStepSchema`
+
+A discriminated union on `kind`:
+
+```ts
+{ kind: 'thinking', content: string }
+| { kind: 'text',     content: string }
+| { kind: 'tool_call',
+    toolName: string (min 1),
+    toolInput: unknown,         // serialized via JSON.stringify in the service
+    toolOutput?: string | null,
+    isError?: boolean,
+    durationMs?: number (int >= 0)
+  }
+```
+
+#### `CompleteAgentOutputSchema`
+
+```ts
+{ response: string, tokensIn?: number (int >= 0), tokensOut?: number (int >= 0) }
+```
+
+Both token fields default to `0`.
+
+#### `FailAgentOutputSchema`
+
+```ts
+{ error: string (min 1), status?: 'error' | 'cancelled' }
+```
+
+`status` defaults to `'error'`.
+
+---
+
 ### Slot Output Schema
 
 #### `AddSlotOutputSchema`
@@ -667,6 +728,10 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `UpdateRequirementTestInput` | `UpdateRequirementTestSchema` |
 | `CreateAgentAssignmentInput` | `CreateAgentAssignmentSchema` |
 | `UpdateAgentAssignmentInput` | `UpdateAgentAssignmentSchema` |
+| `CreateAgentOutputInput` | `CreateAgentOutputSchema` |
+| `AppendAgentOutputStepInput` | `AppendAgentOutputStepSchema` |
+| `CompleteAgentOutputInput` | `CompleteAgentOutputSchema` |
+| `FailAgentOutputInput` | `FailAgentOutputSchema` |
 | `CreateAgentInput` | `CreateAgentSchema` |
 | `UpdateAgentInput` | `UpdateAgentSchema` |
 | `ChatContextInput` | `ChatContextSchema` |

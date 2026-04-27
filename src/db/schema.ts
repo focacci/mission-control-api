@@ -300,6 +300,44 @@ export const briefs = sqliteTable(
   }),
 );
 
+export const agentOutputs = sqliteTable('agent_outputs', {
+  id: text('id').primaryKey(),
+  agentAssignmentId: text('agent_assignment_id')
+    .notNull()
+    .references(() => agentAssignments.id, { onDelete: 'cascade' }),
+  agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
+  status: text('status', {
+    enum: ['running', 'complete', 'error', 'cancelled'],
+  })
+    .notNull()
+    .default('running'),
+  input: text('input').notNull(),
+  response: text('response'),
+  model: text('model'),
+  tokensIn: integer('tokens_in').notNull().default(0),
+  tokensOut: integer('tokens_out').notNull().default(0),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at'),
+  error: text('error'),
+});
+
+export const agentOutputSteps = sqliteTable('agent_output_steps', {
+  id: text('id').primaryKey(),
+  outputId: text('output_id')
+    .notNull()
+    .references(() => agentOutputs.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['thinking', 'tool_call', 'text'] }).notNull(),
+  content: text('content'),
+  toolName: text('tool_name'),
+  toolInput: text('tool_input'),
+  toolOutput: text('tool_output'),
+  isError: integer('is_error', { mode: 'boolean' }).notNull().default(false),
+  sortOrder: integer('sort_order').notNull(),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at'),
+  durationMs: integer('duration_ms'),
+});
+
 export const toolCallLog = sqliteTable('tool_call_log', {
   id: text('id').primaryKey(),
   messageId: text('message_id').references(() => chatMessages.id, { onDelete: 'cascade' }),

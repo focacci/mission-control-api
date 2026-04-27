@@ -145,6 +145,7 @@ src/
 │   ├── tasks.routes.ts              # /api/tasks/* (core CRUD + requirement creation)
 │   ├── requirements.routes.ts       # /api/requirements/* (+ nested tests)
 │   ├── agentAssignments.routes.ts   # /api/{goals|initiatives|tasks}/:id/agent-assignments, /api/agent-assignments/:id
+│   ├── agentOutputs.routes.ts       # /api/agent-assignments/:id/outputs, /api/agent-outputs/:id
 │   └── schedule.routes.ts           # /api/schedule/* (+ slot outputs)
 ├── services/
 │   ├── goals.service.ts             # Goal CRUD + cascade delete
@@ -152,6 +153,7 @@ src/
 │   ├── tasks.service.ts             # Task CRUD + lifecycle
 │   ├── requirements.service.ts      # Requirement CRUD + requirement tests
 │   ├── agentAssignments.service.ts  # Agent assignment CRUD + completion
+│   ├── agentOutputs.service.ts      # Structured record of one agent run (input + ordered steps + response)
 │   └── schedule.service.ts          # Week plan gen + slot lifecycle + slot outputs
 └── types/
     └── index.types.ts        # Zod schemas, inferred types, AppError, utility functions
@@ -173,6 +175,8 @@ Each task can have:
 - **Requirements** — checklist items that must all be checked before the task can be marked done. Each requirement owns its own **tests** (acceptance criteria / verification steps).
 
 **Agent Assignments** — discrete chunks of work delegated to an agent. They are polymorphic: each AA is parented to **exactly one** of a goal, initiative, or task (the other two parent ids are `null`). Scheduling operates on agent assignments (not tasks): a slot links to an `agentAssignmentId`, and the outputs produced during that slot live on the slot as **slot outputs** (files, URLs, wikilinks). Goal allocation walks the parent chain (`goalId` → `initiativeId.goalId` → `taskId.initiativeId.goalId`) to attribute each AA to a goal.
+
+**Agent Outputs** — the structured record of one autonomous run of an Agent Assignment: the input prompt, an ordered timeline of `thinking` / `tool_call` / `text` steps, and the final response (with token totals and status). Distinct from chat history; designed as the long-term record the future slot-runner will emit.
 
 ### Agent control layer (Phases 1–2)
 
@@ -215,6 +219,7 @@ Goals have a **focus level** that controls weekly schedule allocation:
 | Pinned Contexts | `/api/pinned-contexts` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Context Groups | `/api/context-groups` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 | Briefings | `/api/briefs` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
+| Agent Outputs | `/api/agent-assignments/:id/outputs`, `/api/agent-outputs/:id` | [src/routes/ROUTES.md](src/routes/ROUTES.md) |
 
 ### Quick examples
 

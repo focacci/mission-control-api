@@ -158,6 +158,53 @@ export const BlockAgentAssignmentSchema = z.object({
   reason: z.string().min(1).optional(),
 });
 
+// Agent Outputs
+export const AGENT_OUTPUT_STATUSES = ['running', 'complete', 'error', 'cancelled'] as const;
+export type AgentOutputStatus = (typeof AGENT_OUTPUT_STATUSES)[number];
+
+export const AGENT_OUTPUT_STEP_KINDS = ['thinking', 'tool_call', 'text'] as const;
+export type AgentOutputStepKind = (typeof AGENT_OUTPUT_STEP_KINDS)[number];
+
+export const CreateAgentOutputSchema = z.object({
+  agentId: z.string().nullable().optional(),
+  input: z.string().min(1),
+  model: z.string().nullable().optional(),
+});
+export type CreateAgentOutputInput = z.infer<typeof CreateAgentOutputSchema>;
+
+export const AppendAgentOutputStepSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('thinking'),
+    content: z.string(),
+  }),
+  z.object({
+    kind: z.literal('text'),
+    content: z.string(),
+  }),
+  z.object({
+    kind: z.literal('tool_call'),
+    toolName: z.string().min(1),
+    toolInput: z.unknown(),
+    toolOutput: z.string().nullable().optional(),
+    isError: z.boolean().optional(),
+    durationMs: z.number().int().nonnegative().optional(),
+  }),
+]);
+export type AppendAgentOutputStepInput = z.infer<typeof AppendAgentOutputStepSchema>;
+
+export const CompleteAgentOutputSchema = z.object({
+  response: z.string(),
+  tokensIn: z.number().int().nonnegative().default(0),
+  tokensOut: z.number().int().nonnegative().default(0),
+});
+export type CompleteAgentOutputInput = z.infer<typeof CompleteAgentOutputSchema>;
+
+export const FailAgentOutputSchema = z.object({
+  error: z.string().min(1),
+  status: z.enum(['error', 'cancelled']).default('error'),
+});
+export type FailAgentOutputInput = z.infer<typeof FailAgentOutputSchema>;
+
 // Slot Outputs
 export const AddSlotOutputSchema = z.object({
   label: z.string().min(1),

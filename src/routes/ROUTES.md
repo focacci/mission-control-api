@@ -12,6 +12,7 @@
 - [Requirements](#requirements)
   - [Requirement Tests](#requirement-tests)
 - [Agent Assignments](#agent-assignments)
+- [Agent Outputs](#agent-outputs)
 - [Schedule](#schedule)
 - [Board](#board)
 - [Agents](#agents)
@@ -162,6 +163,27 @@ Chunks of work delegated to an agent. They're the unit that gets scheduled into 
 **Notes:**
 - An assignment row carries exactly one of `goalId`, `initiativeId`, `taskId`. The parent kind is determined by which one is set; the other two are `null`.
 - Scheduling resolves an assignment's owning goal by walking the chain: direct `goalId` → `initiativeId.goalId` → `taskId.initiativeId.goalId`.
+
+---
+
+## Agent Outputs
+
+Structured record of one autonomous run of an Agent Assignment — the input, ordered intermediate steps (`thinking` / `tool_call` / `text`), and the final response. Distinct from chat history. There is no production write path yet; these endpoints support tests, manual creation, and the future slot-runner.
+
+| Method | Path | Description | Body | Response |
+|--------|------|-------------|------|----------|
+| `GET` | `/api/agent-assignments/:id/outputs` | List outputs for an assignment, newest first | — | `AgentOutput[]` |
+| `POST` | `/api/agent-assignments/:id/outputs` | Open a new running output | `{ input, agentId?, model? }` | `201 AgentOutput` |
+| `GET` | `/api/agent-outputs/:id` | Get one output with its ordered steps | — | `{ output: AgentOutput, steps: AgentOutputStep[] }` |
+| `POST` | `/api/agent-outputs/:id/steps` | Append one step (sortOrder auto-assigned). Discriminated by `kind`. | `{ kind: 'thinking' \| 'text', content }` or `{ kind: 'tool_call', toolName, toolInput, toolOutput?, isError?, durationMs? }` | `201 AgentOutputStep` |
+| `POST` | `/api/agent-outputs/:id/complete` | Transition `running → complete`, write final response and token totals | `{ response, tokensIn?, tokensOut? }` | `AgentOutput` |
+| `POST` | `/api/agent-outputs/:id/fail` | Transition `running → error` or `cancelled` with an error message | `{ error, status?: 'error' \| 'cancelled' }` | `AgentOutput` |
+| `DELETE` | `/api/agent-outputs/:id` | Hard-delete (cascades to steps) | — | `204` |
+
+**Notes:**
+- Step append returns 409 if the parent output's status is not `running`.
+- `tool_call` steps store `toolInput` as a JSON string; clients should `JSON.parse` if rendering.
+- Outputs are immutable once `complete` / `error` / `cancelled`; only delete is supported.
 
 ---
 

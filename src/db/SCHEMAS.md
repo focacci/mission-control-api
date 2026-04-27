@@ -17,6 +17,8 @@
 - [`agent_invocations`](#agent_invocations)
 - [`chat_messages`](#chat_messages)
 - [`tool_call_log`](#tool_call_log)
+- [`agent_outputs`](#agent_outputs)
+- [`agent_output_steps`](#agent_output_steps)
 - [`profile_sections`](#profile_sections)
 - [`profile_entries`](#profile_entries)
 - [`pinned_contexts`](#pinned_contexts)
@@ -303,6 +305,48 @@ Structured record of every tool the model called during an invocation (primarily
 | `started_at` | `text` | ISO timestamp |
 | `ended_at` | `text` nullable | ISO timestamp when the result arrived |
 | `duration_ms` | `integer` nullable | populated on resolution |
+
+---
+
+## `agent_outputs`
+
+Header row for one autonomous run of an agent assignment. Distinct from `chat_messages` / `agent_invocations` — this is the structured, long-term record of what the agent did during an Agent Assignment run (input, intermediate steps, final response). Currently only written via test/manual paths; the production slot-runner will emit these.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `agent_assignment_id` | `text` FK → `agent_assignments.id` | `ON DELETE CASCADE` |
+| `agent_id` | `text` nullable FK → `agents.id` | `ON DELETE SET NULL` — keeps the run if the agent is deleted |
+| `status` | `text` enum | `running` \| `complete` \| `error` \| `cancelled`, default `running` |
+| `input` | `text` | the prompt the agent received |
+| `response` | `text` nullable | denormalized final assistant text (also a `text` step) |
+| `model` | `text` nullable | model identifier used for the run |
+| `tokens_in` | `integer` default 0 | |
+| `tokens_out` | `integer` default 0 | |
+| `started_at` | `text` | ISO timestamp |
+| `ended_at` | `text` nullable | ISO timestamp on `complete`/`error`/`cancelled` |
+| `error` | `text` nullable | populated on `error`/`cancelled` |
+
+---
+
+## `agent_output_steps`
+
+Ordered sequence of typed events emitted during an `agent_outputs` run. Shape is intentionally aligned with the Anthropic SDK's content-block stream so a future production runner can be a thin adapter.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `output_id` | `text` FK → `agent_outputs.id` | `ON DELETE CASCADE` |
+| `kind` | `text` enum | `thinking` \| `tool_call` \| `text` |
+| `content` | `text` nullable | populated for `thinking` and `text`; null for `tool_call` |
+| `tool_name` | `text` nullable | populated for `tool_call` only |
+| `tool_input` | `text` nullable | JSON-stringified input for `tool_call` |
+| `tool_output` | `text` nullable | stringified tool result |
+| `is_error` | `integer` boolean | default `false`; only meaningful for `tool_call` |
+| `sort_order` | `integer` | monotonic per `output_id` (auto-assigned `max+1` on append) |
+| `started_at` | `text` | ISO timestamp |
+| `ended_at` | `text` nullable | computed from `started_at + duration_ms` for `tool_call` when supplied |
+| `duration_ms` | `integer` nullable | tool-call duration |
 
 ---
 

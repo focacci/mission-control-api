@@ -45,6 +45,14 @@
   - [`reopenAgentAssignment`](#reopenagentassignmentid)
   - [`unassignAgentAssignment`](#unassignagentassignmentid)
   - [`deleteAgentAssignment`](#deleteagentassignmentid)
+- [Agent Outputs Service](#agent-outputs-service)
+  - [`createAgentOutput`](#createagentoutputagentassignmentid-input)
+  - [`appendAgentOutputStep`](#appendagentoutputstepoutputid-input)
+  - [`completeAgentOutput`](#completeagentoutputoutputid-input)
+  - [`failAgentOutput`](#failagentoutputoutputid-input)
+  - [`listAgentOutputsForAssignment`](#listagentoutputsforassignmentagentassignmentid)
+  - [`getAgentOutput`](#getagentoutputoutputid)
+  - [`deleteAgentOutput`](#deleteagentoutputoutputid)
 - [Schedule Service](#schedule-service)
   - [`getTodaySlots`](#gettodayslots)
   - [`getWeekSlots`](#getweekslotsweestart)
@@ -440,6 +448,74 @@ deleteAgentAssignment(id: string): Promise<void>
 ```
 
 Hard-deletes the assignment in a transaction: any schedule slots referencing it are first reset to `type = 'flex'`, `agentAssignmentId = null`, `status = 'pending'`, then the row is removed.
+
+---
+
+## Agent Outputs Service
+
+Defined in [agentOutputs.service.ts](agentOutputs.service.ts). Manages the structured record of one autonomous run of an Agent Assignment — the input, ordered steps (`thinking` / `tool_call` / `text`), and the final response. Independent of `agent_invocations` and `chat_messages`. Currently used by tests and manual callers; the production slot-runner will write through this service when it lands.
+
+### `createAgentOutput(agentAssignmentId, input)`
+
+```ts
+createAgentOutput(agentAssignmentId: string, input: CreateAgentOutputInput): Promise<AgentOutput>
+```
+
+Opens a new running output for the given assignment. Defaults `agentId` to the assignment's `agentId` when not supplied. Stamps `startedAt = now()` and `status = 'running'`. Throws 404 if the assignment doesn't exist.
+
+### `appendAgentOutputStep(outputId, input)`
+
+```ts
+appendAgentOutputStep(outputId: string, input: AppendAgentOutputStepInput): Promise<AgentOutputStep>
+```
+
+Appends one ordered step to a running output. Discriminated by `kind`:
+
+- `thinking` — stores `content`.
+- `text` — stores `content`.
+- `tool_call` — stores `toolName`, `JSON.stringify(toolInput)`, optional `toolOutput`, `isError`, and `durationMs`. Computes `endedAt = startedAt + durationMs` when `durationMs` is provided.
+
+`sortOrder` is auto-assigned as `max(existing) + 1`. Throws 404 if the output is missing, 409 if `output.status !== 'running'`.
+
+### `completeAgentOutput(outputId, input)`
+
+```ts
+completeAgentOutput(outputId: string, input: CompleteAgentOutputInput): Promise<AgentOutput>
+```
+
+Transitions `running → complete`, writes `response`, `tokensIn`, `tokensOut`, and stamps `endedAt`. Throws 409 if the output is not `running`.
+
+### `failAgentOutput(outputId, input)`
+
+```ts
+failAgentOutput(outputId: string, input: FailAgentOutputInput): Promise<AgentOutput>
+```
+
+Transitions `running → error` (default) or `running → cancelled`, writes `error`, stamps `endedAt`. Throws 409 if the output is not `running`.
+
+### `listAgentOutputsForAssignment(agentAssignmentId)`
+
+```ts
+listAgentOutputsForAssignment(agentAssignmentId: string): Promise<AgentOutput[]>
+```
+
+Returns header rows for the assignment ordered by `startedAt` desc. No steps included. Throws 404 if the assignment doesn't exist.
+
+### `getAgentOutput(outputId)`
+
+```ts
+getAgentOutput(outputId: string): Promise<AgentOutputDetail>
+```
+
+Returns `{ output, steps }` with steps ordered by `sortOrder` ascending.
+
+### `deleteAgentOutput(outputId)`
+
+```ts
+deleteAgentOutput(outputId: string): Promise<void>
+```
+
+Hard-deletes the output row; steps cascade via FK.
 
 ---
 
