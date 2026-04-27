@@ -322,6 +322,31 @@ export async function startAgentAssignment(id: string) {
 export const completeAgentAssignment = (id: string) =>
   setStatus(id, 'done', ['in-progress']);
 
+/**
+ * Bypass the slot-allocation path of `startAgentAssignment` and force an AA
+ * to `in-progress` from any non-`done` status. Used by the slot runner, which
+ * already knows which slot is firing the AA. No-op if already `in-progress`.
+ */
+export async function forceInProgress(id: string) {
+  const [existing] = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.id, id));
+  if (!existing) throw notFound('AgentAssignment', id);
+
+  if (existing.status === 'in-progress') return loadAgentAssignment(id);
+  if (existing.status === 'done') {
+    throw new AppError(409, `Cannot force in-progress: AgentAssignment ${id} is done`);
+  }
+
+  await db
+    .update(agentAssignments)
+    .set({ status: 'in-progress', updatedAt: now() })
+    .where(eq(agentAssignments.id, id));
+
+  return loadAgentAssignment(id);
+}
+
 export const blockAgentAssignment = (id: string) =>
   setStatus(id, 'blocked', ['in-progress']);
 

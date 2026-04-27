@@ -176,7 +176,9 @@ Each task can have:
 
 **Agent Assignments** — discrete chunks of work delegated to an agent. They are polymorphic: each AA is parented to **exactly one** of a goal, initiative, or task (the other two parent ids are `null`). Scheduling operates on agent assignments (not tasks): a slot links to an `agentAssignmentId`, and the outputs produced during that slot live on the slot as **slot outputs** (files, URLs, wikilinks). Goal allocation walks the parent chain (`goalId` → `initiativeId.goalId` → `taskId.initiativeId.goalId`) to attribute each AA to a goal.
 
-**Agent Outputs** — the structured record of one autonomous run of an Agent Assignment: the input prompt, an ordered timeline of `thinking` / `tool_call` / `text` steps, and the final response (with token totals and status). Distinct from chat history; designed as the long-term record the future slot-runner will emit.
+**Agent Outputs** — the structured record of one autonomous run of an Agent Assignment: the input prompt, an ordered timeline of `thinking` / `tool_call` / `text` steps, and the final response (with token totals and status). Distinct from chat history.
+
+**Slot runner** — slots fire at their scheduled time and run their assigned agent. An in-process tick (60s) finds slots whose `datetime <= now`, `status = 'pending'`, and `agentAssignmentId IS NOT NULL`, claims them transactionally, and drives `runner.run` end-to-end while persisting the run as an Agent Output. Each slot runs sequentially. See [SLOT_RUNNER_PLAN.md](SLOT_RUNNER_PLAN.md).
 
 ### Agent control layer (Phases 1–2)
 

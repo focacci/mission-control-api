@@ -22,6 +22,7 @@ import { briefsRoutes } from './routes/briefs.routes.js';
 import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
 import { initGatewayClient, loadOrCreateDeviceIdentity } from './agent/gatewayClient.js';
+import { startSlotTicker } from './agent/slotTicker.js';
 import path from 'node:path';
 
 const PORT = Number(process.env.PORT ?? 3737);
@@ -109,6 +110,16 @@ await app.register(agentsRoutes);
 await app.register(profileRoutes);
 await app.register(contextGroupsRoutes);
 await app.register(briefsRoutes);
+
+// ---------------------------------------------------------------------------
+// Slot ticker — fires due slots every 60s
+// ---------------------------------------------------------------------------
+const stopSlotTicker = startSlotTicker({ logger: app.log as unknown as Console });
+const shutdown = () => {
+  try { stopSlotTicker(); } catch { /* ignore */ }
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 // ---------------------------------------------------------------------------
 // Start

@@ -1,4 +1,4 @@
-import { eq, and, inArray, asc, gte, lte } from 'drizzle-orm';
+import { eq, and, inArray, asc, gte, lte, isNotNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import {
@@ -343,6 +343,7 @@ export async function updateSlot(id: string, input: UpdateSlotInput) {
   if ('status' in input && input.status !== undefined) updates.status = input.status;
   if ('note' in input) updates.note = input.note ?? null;
   if ('agentAssignmentId' in input) updates.agentAssignmentId = input.agentAssignmentId ?? null;
+  if ('extraPrompt' in input) updates.extraPrompt = input.extraPrompt ?? null;
 
   await db.update(scheduleSlots).set(updates).where(eq(scheduleSlots.id, id));
 
@@ -479,5 +480,47 @@ function computeAllocations(activeGoals: (typeof goals.$inferSelect)[]) {
   distribute(activeGoals.filter(g => g.focus === 'simmer'), SIMMER_TOTAL);
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Slot runner support
+// ---------------------------------------------------------------------------
+
+export type ScheduleSlotRow = typeof scheduleSlots.$inferSelect;
+
+export async function findDueSlots(nowIso: string): Promise<ScheduleSlotRow[]> {
+  return db
+    .select()
+    .from(scheduleSlots)
+    .where(
+      and(
+        lte(scheduleSlots.datetime, nowIso),
+        eq(scheduleSlots.status, 'pending'),
+        isNotNull(scheduleSlots.agentAssignmentId),
+      ),
+    )
+    .orderBy(asc(scheduleSlots.datetime));
+}
+
+export function claimSlotForRun(slotId: string): ScheduleSlotRow | null {
+  return db.transaction(tx => {
+    const current = tx
+      .select()
+      .from(scheduleSlots)
+      .where(eq(scheduleSlots.id, slotId))
+      .all()[0];
+    if (!current || current.status !== 'pending') return null;
+
+    tx.update(scheduleSlots)
+      .set({ status: 'in-progress' })
+      .where(eq(scheduleSlots.id, slotId))
+      .run();
+
+    return tx
+      .select()
+      .from(scheduleSlots)
+      .where(eq(scheduleSlots.id, slotId))
+      .all()[0] ?? null;
+  });
 }
 

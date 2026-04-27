@@ -1,0 +1,1 @@
+ALTER TABLE `schedule_slots` ADD `extra_prompt` text;

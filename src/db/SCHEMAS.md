@@ -179,6 +179,7 @@ Individual 2-hour time blocks within a week plan. 84 slots per week (12 slots/da
 | `agent_assignment_id` | `text` nullable | agent assignment occupying this slot (no FK constraint — service-level cleanup) |
 | `goal_id` | `text` FK → `goals.id` | `ON DELETE SET NULL` — goal allocation for unassigned slots |
 | `note` | `text` nullable | completion note or skip reason |
+| `extra_prompt` | `text` nullable | extra instructions appended to the slot's agent prompt at fire time |
 | `day_of_week` | `text` | `Monday`, `Tuesday`, etc. |
 
 ---

@@ -323,6 +323,7 @@ type AgentAssignmentStatus = (typeof AGENT_ASSIGNMENT_STATUSES)[number];
   status?: 'pending' | 'in-progress' | 'done' | 'skipped',
   agentAssignmentId?: string | null,
   note?: string | null,
+  extraPrompt?: string | null,
 }
 ```
 

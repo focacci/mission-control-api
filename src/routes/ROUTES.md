@@ -198,7 +198,7 @@ Week plan generation, slot queries, and slot lifecycle management.
 | `GET` | `/api/schedule/range` | Get all slots in an inclusive date range | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both required) | `{ from, to, slots: SlotWithAssignment[] }` |
 | `POST` | `/api/schedule/generate` | Generate a new week plan | `{ weekStart?: string }` (defaults to current week's Sunday) | `201 { weekPlan, slots, allocations }` |
 | `POST` | `/api/schedule/sync` | (stub) Write-through to Obsidian SCHEDULE.md | — | `{ synced: false, message }` |
-| `PATCH` | `/api/schedule/slots/:id` | Update a slot | `{ status?, agentAssignmentId?, note? }` | `ScheduleSlot` |
+| `PATCH` | `/api/schedule/slots/:id` | Update a slot | `{ status?, agentAssignmentId?, note?, extraPrompt? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/slots/:id/done` | Mark slot done | `{ note? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/slots/:id/skip` | Skip slot | `{ reason? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/assign` | Assign an agent assignment to a slot | `{ agentAssignmentId, slotId }` | `ScheduleSlot` |

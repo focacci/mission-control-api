@@ -40,6 +40,7 @@
   - [`resolveGoalIdsForAssignments`](#resolvegoalidsforassignmentsaaids)
   - [`updateAgentAssignment`](#updateagentassignmentid-input)
   - [`startAgentAssignment`](#startagentassignmentid)
+  - [`forceInProgress`](#forceinprogressid)
   - [`completeAgentAssignment`](#completeagentassignmentid)
   - [`blockAgentAssignment`](#blockagentassignmentid)
   - [`reopenAgentAssignment`](#reopenagentassignmentid)
@@ -64,6 +65,11 @@
   - [`unassignAgentAssignment`](#unassignagentassignmentslotid)
   - [`addSlotOutput`](#addslotoutputslotid-input)
   - [`deleteSlotOutput`](#deleteslotoutputslotid-outputid)
+  - [`findDueSlots`](#finddueslotsnowiso)
+  - [`claimSlotForRun`](#claimslotforrunslotid)
+- [Slot Runner](#slot-runner)
+  - [`runDueSlot`](#rundueslotslot)
+  - [`startSlotTicker`](#startslottickeropts)
 - [Board Service](#board-service)
   - [`getBoard`](#getboard)
 - [Agents Service](#agents-service)
@@ -409,6 +415,14 @@ Starts an assignment. Behavior depends on current status:
 
 Throws `AppError(409)` from any other status.
 
+### `forceInProgress(id)`
+
+```ts
+forceInProgress(id: string): Promise<AgentAssignment>
+```
+
+Bypasses the slot-allocation path of `startAgentAssignment` and forces an AA from `pending | scheduled | blocked` (or no-op from `in-progress`) to `in-progress`. Used by the slot runner, which already knows which slot is firing the AA. Throws `AppError(409)` if the assignment is `done`.
+
 ### `completeAgentAssignment(id)`
 
 ```ts
@@ -569,7 +583,7 @@ Creates a complete week plan:
 updateSlot(id: string, input: UpdateSlotInput): Promise<ScheduleSlot>
 ```
 
-Generic patch: updates `status`, `agentAssignmentId`, and/or `note`. Throws `AppError(404)` if slot not found.
+Generic patch: updates `status`, `agentAssignmentId`, `note`, and/or `extraPrompt`. Throws `AppError(404)` if slot not found.
 
 ### `doneSlot(id, input)`
 
@@ -618,6 +632,54 @@ deleteSlotOutput(slotId: string, outputId: string): Promise<void>
 ```
 
 Removes the output. Validates both ids match.
+
+### `findDueSlots(nowIso)`
+
+```ts
+findDueSlots(nowIso: string): Promise<ScheduleSlot[]>
+```
+
+Returns slots whose `datetime <= nowIso`, `status = 'pending'`, and `agentAssignmentId IS NOT NULL`, ordered by `datetime ASC`. Used by the slot ticker to discover work.
+
+### `claimSlotForRun(slotId)`
+
+```ts
+claimSlotForRun(slotId: string): ScheduleSlot | null
+```
+
+Synchronous transactional claim: re-reads the slot inside a transaction, returns `null` if status is no longer `pending`, otherwise sets `status = 'in-progress'` and returns the updated row. Acts as the lock that prevents two ticks (or a tick and a manual update) from double-firing the same slot.
+
+---
+
+## Slot Runner
+
+In-process module that fires due slots and captures each run as an Agent Output. Lives under `src/agent/slotRunner.ts` (one slot at a time) and `src/agent/slotTicker.ts` (60s tick loop).
+
+### `runDueSlot(slot)`
+
+```ts
+runDueSlot(slot: ScheduleSlot): Promise<void>
+```
+
+Drives a single claimed slot:
+
+1. Loads the slot's `agentAssignmentId` via `getAgentAssignment`. If missing or already `done`, marks the slot `done` and returns.
+2. Resolves `agentId = aa.agentId ?? 'intella'` and `model = AGENT_DEFAULT_MODEL ?? 'claude-sonnet-4.6'`.
+3. Builds the prompt: `Please complete the following Agent Assignment:\n\n{title}\n\n{description}` plus an optional `\n\n{slot.extraPrompt}` line.
+4. Find-or-creates a chat session keyed `(agentId, contextType='slot', contextId=slot.id)`, starts an invocation with `trigger='slot_start'`, opens a `running` Agent Output, and forces the AA to `in-progress`.
+5. Awaits `runner.run(...)` with an `onEvent` handler that maps `text_delta` → buffered text, `tool_use` → pending tool, `tool_result` → `appendAgentOutputStep({ kind: 'tool_call' })`, `message_complete` → `appendAgentOutputStep({ kind: 'text' })` flushing the buffer.
+6. On resolve: completes the Agent Output with `{ response, tokensIn, tokensOut }`, marks the slot `done`, and completes the AA.
+7. On reject: calls `failAgentOutput` with `status='cancelled'` if the captured fatal `error` event used `code='cancelled'`, otherwise `status='error'`. The slot stays `in-progress` and the AA keeps its current status — manual intervention required.
+
+Never throws to its caller. Step writes are serialized through an internal promise queue so they don't interleave with `completeAgentOutput`.
+
+### `startSlotTicker(opts)`
+
+```ts
+startSlotTicker(opts?: { intervalMs?: number; logger?: Pick<Console, 'info'|'warn'|'error'> }): () => void
+```
+
+Periodic scheduler. Defaults to a 60_000 ms interval (overridable via `SLOT_TICKER_INTERVAL_MS`). Holds an `isRunning` flag to drop re-entry if a tick is still draining. Per tick: queries `findDueSlots(now)`, then for each slot calls `claimSlotForRun(slot.id)` and (on success) `runDueSlot(claimed)` sequentially. Fires one tick immediately on start. Returns a stop function used for tests / SIGTERM / SIGINT shutdown.
 
 ---
 

@@ -221,6 +221,7 @@ export const UpdateSlotSchema = z.object({
   status: z.enum(['pending', 'in-progress', 'done', 'skipped']).optional(),
   agentAssignmentId: z.string().nullable().optional(),
   note: z.string().nullable().optional(),
+  extraPrompt: z.string().nullable().optional(),
 });
 
 export const DoneSlotSchema = z.object({

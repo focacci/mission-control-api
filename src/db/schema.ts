@@ -147,6 +147,7 @@ export const scheduleSlots = sqliteTable('schedule_slots', {
   ),
   goalId: text('goal_id').references(() => goals.id, { onDelete: 'set null' }),
   note: text('note'),
+  extraPrompt: text('extra_prompt'),
   dayOfWeek: text('day_of_week').notNull(),
 });
 
