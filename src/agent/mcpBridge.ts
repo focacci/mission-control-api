@@ -151,7 +151,7 @@ export const TOOLS = [
   {
     name: 'agent_assignments',
     description:
-      'Manage agent assignments (discrete agent work under a task). Actions: list, get, create, update, complete, delete.',
+      'Manage agent assignments (discrete agent work attached to a goal, initiative, or task). Actions: list, get, create, update, complete, delete. For list/create, supply exactly one parent: goalId, initiativeId, or taskId.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -161,7 +161,9 @@ export const TOOLS = [
           description: 'Operation to perform.',
         },
         id: { type: 'string', description: 'Agent assignment ID (required for get/update/complete/delete).' },
-        taskId: { type: 'string', description: 'Parent task ID (required for list/create).' },
+        goalId: { type: 'string', description: 'Parent goal ID (list/create).' },
+        initiativeId: { type: 'string', description: 'Parent initiative ID (list/create).' },
+        taskId: { type: 'string', description: 'Parent task ID (list/create).' },
         title: { type: 'string', description: 'Short label (create/update).' },
         instructions: { type: 'string', description: 'Instructions for the agent (create/update).' },
         agentId: { type: 'string', description: 'Agent to bind (create/update; null to clear).' },
@@ -613,18 +615,38 @@ async function dispatchRequirements(action: string, args: Args): Promise<unknown
   }
 }
 
+function resolveAAParent(args: Args): { kind: 'goal' | 'initiative' | 'task'; id: string } {
+  const goalId = optArg<string>(args, 'goalId');
+  const initiativeId = optArg<string>(args, 'initiativeId');
+  const taskId = optArg<string>(args, 'taskId');
+  const provided = [goalId, initiativeId, taskId].filter(Boolean);
+  if (provided.length !== 1) {
+    throw new AppError(
+      400,
+      'Provide exactly one parent: goalId, initiativeId, or taskId.',
+    );
+  }
+  if (goalId) return { kind: 'goal', id: goalId };
+  if (initiativeId) return { kind: 'initiative', id: initiativeId };
+  return { kind: 'task', id: taskId! };
+}
+
 async function dispatchAgentAssignments(action: string, args: Args): Promise<unknown> {
   switch (action) {
-    case 'list':
-      return aaService.listAgentAssignmentsForTask(requireArg<string>(args, 'taskId'));
+    case 'list': {
+      const parent = resolveAAParent(args);
+      return aaService.listAgentAssignmentsForParent(parent.kind, parent.id);
+    }
     case 'get':
       return aaService.getAgentAssignment(requireArg<string>(args, 'id'));
-    case 'create':
-      return aaService.createAgentAssignment(requireArg<string>(args, 'taskId'), {
+    case 'create': {
+      const parent = resolveAAParent(args);
+      return aaService.createAgentAssignmentForParent(parent.kind, parent.id, {
         title: requireArg<string>(args, 'title'),
         instructions: requireArg<string>(args, 'instructions'),
         agentId: optArg<string | null>(args, 'agentId'),
       });
+    }
     case 'update':
       return aaService.updateAgentAssignment(requireArg<string>(args, 'id'), {
         title: optArg<string>(args, 'title'),

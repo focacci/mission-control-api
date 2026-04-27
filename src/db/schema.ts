@@ -104,9 +104,11 @@ export const agents = sqliteTable('agents', {
 
 export const agentAssignments = sqliteTable('agent_assignments', {
   id: text('id').primaryKey(),
-  taskId: text('task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
+  goalId: text('goal_id').references(() => goals.id, { onDelete: 'cascade' }),
+  initiativeId: text('initiative_id').references(() => initiatives.id, {
+    onDelete: 'cascade',
+  }),
+  taskId: text('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   instructions: text('instructions').notNull(),
   agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),

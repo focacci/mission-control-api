@@ -272,7 +272,7 @@ Used by `POST /api/tasks/:id/block`.
 }
 ```
 
-Input for `POST /api/tasks/:taskId/agent-assignments`.
+Input for `POST /api/goals/:goalId/agent-assignments`, `POST /api/initiatives/:initiativeId/agent-assignments`, and `POST /api/tasks/:taskId/agent-assignments`. The parent kind is determined by the route — the request body is identical for all three.
 
 #### `UpdateAgentAssignmentSchema`
 

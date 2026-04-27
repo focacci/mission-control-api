@@ -144,7 +144,7 @@ src/
 │   ├── initiatives.routes.ts        # /api/initiatives/*
 │   ├── tasks.routes.ts              # /api/tasks/* (core CRUD + requirement creation)
 │   ├── requirements.routes.ts       # /api/requirements/* (+ nested tests)
-│   ├── agentAssignments.routes.ts   # /api/tasks/:taskId/agent-assignments, /api/agent-assignments/:id
+│   ├── agentAssignments.routes.ts   # /api/{goals|initiatives|tasks}/:id/agent-assignments, /api/agent-assignments/:id
 │   └── schedule.routes.ts           # /api/schedule/* (+ slot outputs)
 ├── services/
 │   ├── goals.service.ts             # Goal CRUD + cascade delete
@@ -171,7 +171,8 @@ Goals          — long-term areas of life/work (e.g. "🙏 Grow in Faith")
 
 Each task can have:
 - **Requirements** — checklist items that must all be checked before the task can be marked done. Each requirement owns its own **tests** (acceptance criteria / verification steps).
-- **Agent Assignments** — discrete chunks of work delegated to an agent. Scheduling operates on agent assignments (not tasks): a slot links to an `agentAssignmentId`, and the outputs produced during that slot live on the slot as **slot outputs** (files, URLs, wikilinks).
+
+**Agent Assignments** — discrete chunks of work delegated to an agent. They are polymorphic: each AA is parented to **exactly one** of a goal, initiative, or task (the other two parent ids are `null`). Scheduling operates on agent assignments (not tasks): a slot links to an `agentAssignmentId`, and the outputs produced during that slot live on the slot as **slot outputs** (files, URLs, wikilinks). Goal allocation walks the parent chain (`goalId` → `initiativeId.goalId` → `taskId.initiativeId.goalId`) to attribute each AA to a goal.
 
 ### Agent control layer (Phases 1–2)
 

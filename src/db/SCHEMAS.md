@@ -124,15 +124,17 @@ Verification steps attached to a specific requirement. When all tests under a re
 
 ## `agent_assignments`
 
-A chunk of task work delegated to an agent. Tasks are purely human-driven; agent assignments are the unit that gets scheduled into slots and produces outputs.
+A chunk of work delegated to an agent. Goals/initiatives/tasks are human-driven; agent assignments are the unit that gets scheduled into slots and produces outputs. The parent is polymorphic: exactly one of `goal_id`, `initiative_id`, or `task_id` is set per row (enforced in the service layer).
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text` PK | nanoid |
-| `task_id` | `text` FK → `tasks.id` | `ON DELETE CASCADE` |
+| `goal_id` | `text` FK → `goals.id` nullable | `ON DELETE CASCADE` |
+| `initiative_id` | `text` FK → `initiatives.id` nullable | `ON DELETE CASCADE` |
+| `task_id` | `text` FK → `tasks.id` nullable | `ON DELETE CASCADE` |
 | `agent_id` | `text` FK → `agents.id` nullable | `ON DELETE SET NULL` |
-| `name` | `text` | short title for the assignment |
-| `instructions` | `text` nullable | markdown brief handed to the agent |
+| `title` | `text` | short title for the assignment |
+| `instructions` | `text` | markdown brief handed to the agent |
 | `completed` | `integer` boolean | default `false` |
 | `completed_at` | `text` nullable | ISO timestamp set when `completed → true` |
 | `sort_order` | `integer` default 0 | |
@@ -417,11 +419,14 @@ Morning / afternoon / evening snapshot the agent generates (or the user authors 
 
 ```
 goals
-  └── initiatives (goal_id → goals.id, SET NULL)
-        └── tasks (initiative_id → initiatives.id, SET NULL)
-              ├── task_requirements (task_id → tasks.id, CASCADE)
-              │     └── requirement_tests (requirement_id → task_requirements.id, CASCADE)
-              └── agent_assignments (task_id → tasks.id, CASCADE; agent_id → agents.id, SET NULL)
+  ├── initiatives (goal_id → goals.id, SET NULL)
+  │     ├── tasks (initiative_id → initiatives.id, SET NULL)
+  │     │     ├── task_requirements (task_id → tasks.id, CASCADE)
+  │     │     │     └── requirement_tests (requirement_id → task_requirements.id, CASCADE)
+  │     │     └── agent_assignments (task_id → tasks.id, CASCADE; agent_id → agents.id, SET NULL)
+  │     └── agent_assignments (initiative_id → initiatives.id, CASCADE)
+  └── agent_assignments (goal_id → goals.id, CASCADE)
+       (every AA has exactly one of goal_id / initiative_id / task_id set)
 
 week_plans
   ├── schedule_slots       (week_plan_id → week_plans.id, CASCADE)

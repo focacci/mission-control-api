@@ -155,6 +155,7 @@ export async function listTasks(opts: {
 
   const aasByTask = new Map<string, typeof aas>();
   for (const a of aas) {
+    if (!a.taskId) continue;
     const arr = aasByTask.get(a.taskId) ?? [];
     arr.push(a);
     aasByTask.set(a.taskId, arr);

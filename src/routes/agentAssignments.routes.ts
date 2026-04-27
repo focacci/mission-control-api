@@ -16,7 +16,35 @@ export async function agentAssignmentsRoutes(app: FastifyInstance) {
   app.post('/api/tasks/:taskId/agent-assignments', async (request, reply) => {
     const { taskId } = request.params as { taskId: string };
     const parsed = CreateAgentAssignmentSchema.parse(request.body);
-    const aa = await aaService.createAgentAssignment(taskId, parsed);
+    const aa = await aaService.createAgentAssignmentForParent('task', taskId, parsed);
+    return reply.status(201).send(aa);
+  });
+
+  // GET /api/goals/:goalId/agent-assignments
+  app.get('/api/goals/:goalId/agent-assignments', async request => {
+    const { goalId } = request.params as { goalId: string };
+    return aaService.listAgentAssignmentsForGoal(goalId);
+  });
+
+  // POST /api/goals/:goalId/agent-assignments
+  app.post('/api/goals/:goalId/agent-assignments', async (request, reply) => {
+    const { goalId } = request.params as { goalId: string };
+    const parsed = CreateAgentAssignmentSchema.parse(request.body);
+    const aa = await aaService.createAgentAssignmentForParent('goal', goalId, parsed);
+    return reply.status(201).send(aa);
+  });
+
+  // GET /api/initiatives/:initiativeId/agent-assignments
+  app.get('/api/initiatives/:initiativeId/agent-assignments', async request => {
+    const { initiativeId } = request.params as { initiativeId: string };
+    return aaService.listAgentAssignmentsForInitiative(initiativeId);
+  });
+
+  // POST /api/initiatives/:initiativeId/agent-assignments
+  app.post('/api/initiatives/:initiativeId/agent-assignments', async (request, reply) => {
+    const { initiativeId } = request.params as { initiativeId: string };
+    const parsed = CreateAgentAssignmentSchema.parse(request.body);
+    const aa = await aaService.createAgentAssignmentForParent('initiative', initiativeId, parsed);
     return reply.status(201).send(aa);
   });
 

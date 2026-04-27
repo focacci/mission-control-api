@@ -1,7 +1,7 @@
 import { eq, and, sql, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
-import { goals, initiatives, tasks } from '../db/schema.js';
+import { goals, initiatives, tasks, agentAssignments } from '../db/schema.js';
 import {
   FOCUS_ICONS,
   now,
@@ -62,7 +62,13 @@ export async function getGoal(id: string) {
     .where(eq(initiatives.goalId, id))
     .orderBy(asc(initiatives.sortOrder));
 
-  return { ...goal, initiatives: goalInitiatives };
+  const aas = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.goalId, id))
+    .orderBy(asc(agentAssignments.sortOrder));
+
+  return { ...goal, initiatives: goalInitiatives, agentAssignments: aas };
 }
 
 export async function createGoal(input: CreateGoalInput) {
@@ -130,13 +136,31 @@ export async function deleteGoal(id: string) {
 
     const initiativeIds = goalInitiatives.map(i => i.id);
 
-    // Cascade: hard-delete tasks under those initiatives
     if (initiativeIds.length > 0) {
-      tx.delete(tasks).where(inArray(tasks.initiativeId, initiativeIds)).run();
+      // Find all tasks under those initiatives so we can drop their AAs explicitly
+      const initiativeTasks = tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(inArray(tasks.initiativeId, initiativeIds))
+        .all();
+      const taskIds = initiativeTasks.map(t => t.id);
 
-      // Hard-delete initiatives
+      if (taskIds.length > 0) {
+        tx.delete(agentAssignments)
+          .where(inArray(agentAssignments.taskId, taskIds))
+          .run();
+      }
+
+      tx.delete(agentAssignments)
+        .where(inArray(agentAssignments.initiativeId, initiativeIds))
+        .run();
+
+      tx.delete(tasks).where(inArray(tasks.initiativeId, initiativeIds)).run();
       tx.delete(initiatives).where(inArray(initiatives.id, initiativeIds)).run();
     }
+
+    // Goal-direct agent assignments
+    tx.delete(agentAssignments).where(eq(agentAssignments.goalId, id)).run();
 
     // Hard-delete the goal
     tx.delete(goals).where(eq(goals.id, id)).run();

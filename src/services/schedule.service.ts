@@ -3,8 +3,6 @@ import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import {
   goals,
-  initiatives,
-  tasks,
   agentAssignments,
   weekPlans,
   scheduleSlots,
@@ -21,6 +19,7 @@ import {
   type SkipSlotInput,
   type AddSlotOutputInput,
 } from '../types/index.types.js';
+import { resolveGoalIdsForAssignments } from './agentAssignments.service.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -279,7 +278,7 @@ export async function generateWeekPlan(weekStart?: string) {
       .where(eq(agentAssignments.completed, false))
       .orderBy(asc(agentAssignments.sortOrder));
 
-    const aaGoalMap = await buildAssignmentGoalMap(pendingAAs.map(a => a.id));
+    const aaGoalMap = await resolveGoalIdsForAssignments(pendingAAs.map(a => a.id));
 
     for (const alloc of allocations) {
       const goalAASlots = slotRows
@@ -482,45 +481,3 @@ function computeAllocations(activeGoals: (typeof goals.$inferSelect)[]) {
   return result;
 }
 
-async function buildAssignmentGoalMap(aaIds: string[]): Promise<Map<string, string>> {
-  if (!aaIds.length) return new Map();
-
-  const aaRows = await db
-    .select({ id: agentAssignments.id, taskId: agentAssignments.taskId })
-    .from(agentAssignments)
-    .where(inArray(agentAssignments.id, aaIds));
-
-  const taskIds = aaRows.map(a => a.taskId);
-  if (!taskIds.length) return new Map();
-
-  const taskRows = await db
-    .select({ id: tasks.id, initiativeId: tasks.initiativeId })
-    .from(tasks)
-    .where(inArray(tasks.id, taskIds));
-
-  const initiativeIds = taskRows
-    .map(t => t.initiativeId)
-    .filter((id): id is string => id != null);
-
-  if (!initiativeIds.length) return new Map();
-
-  const initiativeRows = await db
-    .select({ id: initiatives.id, goalId: initiatives.goalId })
-    .from(initiatives)
-    .where(inArray(initiatives.id, initiativeIds));
-
-  const initGoalMap = new Map(initiativeRows.map(i => [i.id, i.goalId]));
-  const taskGoalMap = new Map<string, string>();
-  for (const t of taskRows) {
-    if (!t.initiativeId) continue;
-    const gid = initGoalMap.get(t.initiativeId);
-    if (gid) taskGoalMap.set(t.id, gid);
-  }
-
-  const map = new Map<string, string>();
-  for (const a of aaRows) {
-    const gid = taskGoalMap.get(a.taskId);
-    if (gid) map.set(a.id, gid);
-  }
-  return map;
-}

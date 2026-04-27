@@ -36,9 +36,10 @@
   - [`unpassRequirementTest`](#unpassrequirementtestreqid-testid)
   - [`deleteRequirementTest`](#deleterequirementtestreqid-testid)
 - [Agent Assignments Service](#agent-assignments-service)
-  - [`listAgentAssignmentsForTask`](#listagentassignmentsfortasktaskid)
+  - [`listAgentAssignmentsForParent`](#listagentassignmentsforparentkind-parentid)
   - [`getAgentAssignment`](#getagentassignmentid)
-  - [`createAgentAssignment`](#createagentassignmenttaskid-input)
+  - [`createAgentAssignmentForParent`](#createagentassignmentforparentkind-parentid-input)
+  - [`resolveGoalIdsForAssignments`](#resolvegoalidsforassignmentsaaids)
   - [`updateAgentAssignment`](#updateagentassignmentid-input)
   - [`completeAgentAssignment`](#completeagentassignmentid)
   - [`deleteAgentAssignment`](#deleteagentassignmentid)
@@ -350,15 +351,20 @@ Removes the test. Validates both ids match.
 
 ## Agent Assignments Service
 
-Manages `agent_assignments` — discrete chunks of task work delegated to an agent. Scheduling operates on agent assignments, not tasks.
+Manages `agent_assignments` — discrete chunks of work delegated to an agent. Each assignment is parented to **exactly one** of a goal, initiative, or task (the other two id columns are `null`). Scheduling operates on agent assignments, not the parent itself.
 
-### `listAgentAssignmentsForTask(taskId)`
+### `listAgentAssignmentsForParent(kind, parentId)`
 
 ```ts
-listAgentAssignmentsForTask(taskId: string): Promise<(AgentAssignment & { slots: ScheduleSlot[] })[]>
+listAgentAssignmentsForParent(
+  kind: 'goal' | 'initiative' | 'task',
+  parentId: string,
+): Promise<(AgentAssignment & { slots: ScheduleSlot[] })[]>
 ```
 
-Returns all assignments under a task, sorted by `sortOrder`. Each assignment is enriched with the schedule slots currently referencing it (bulk-loaded via `inArray(scheduleSlots.agentAssignmentId, ids)` — no N+1).
+Returns all assignments under a given parent, sorted by `sortOrder`. Each assignment is enriched with the schedule slots currently referencing it (bulk-loaded via `inArray(scheduleSlots.agentAssignmentId, ids)` — no N+1). Throws `AppError(404)` if the parent doesn't exist.
+
+`listAgentAssignmentsForTask`, `listAgentAssignmentsForGoal`, and `listAgentAssignmentsForInitiative` are thin wrappers that pass the right `kind`.
 
 ### `getAgentAssignment(id)`
 
@@ -366,15 +372,27 @@ Returns all assignments under a task, sorted by `sortOrder`. Each assignment is 
 getAgentAssignment(id: string): Promise<AgentAssignment & { slots: ScheduleSlot[] }>
 ```
 
-Single-row variant of the above. Throws `AppError(404)` if not found.
+Single-row variant. Throws `AppError(404)` if not found.
 
-### `createAgentAssignment(taskId, input)`
+### `createAgentAssignmentForParent(kind, parentId, input)`
 
 ```ts
-createAgentAssignment(taskId: string, input: CreateAgentAssignmentInput): Promise<AgentAssignment>
+createAgentAssignmentForParent(
+  kind: 'goal' | 'initiative' | 'task',
+  parentId: string,
+  input: CreateAgentAssignmentInput,
+): Promise<AgentAssignment>
 ```
 
-Inserts a new assignment with `completed: false`, `sortOrder = current count`, and optional `agentId` / `instructions`. Throws `AppError(404)` if the task doesn't exist.
+Inserts a new assignment, populating only the matching parent column (`goalId` / `initiativeId` / `taskId`) and leaving the other two `null`. Sets `completed: false`, `sortOrder = current count`, and optional `agentId`. Throws `AppError(404)` if the parent doesn't exist. `createAgentAssignment(taskId, input)` is the legacy task-only wrapper.
+
+### `resolveGoalIdsForAssignments(aaIds)`
+
+```ts
+resolveGoalIdsForAssignments(aaIds: string[]): Promise<Map<string, string>>
+```
+
+For each agent assignment id, resolves the goal it belongs to by walking the parent chain: a direct `goalId` wins; otherwise `initiativeId.goalId`; otherwise `taskId.initiativeId.goalId`. Used by the scheduler when allocating goal slots.
 
 ### `updateAgentAssignment(id, input)`
 
@@ -443,7 +461,7 @@ Creates a complete week plan:
 4. Computes per-goal slot allocations (sprint 30 / steady 12 / simmer 4, split evenly within each focus level).
 5. Generates 105 slots (15 times × 7 days). Fixed types: `00:00` → `maintenance`, Sunday `02:00` → `planning`, `07:00`/`12:30`/`19:00` → `brief`. All others → `flex`. `fixedSlots = 29` (7 maintenance + 1 planning + 21 briefs).
 6. Distributes agent-assignment-eligible flex slots to goals in allocation order, upgrading them to type `agent_assignment`.
-7. Looks up open agent assignments under each goal (via task → initiative → goal), and links each to one of that goal's assignment slots via `agentAssignmentId`.
+7. Looks up open agent assignments under each goal — polymorphic AAs are resolved via `resolveGoalIdsForAssignments` (direct `goalId`, then `initiativeId.goalId`, then `taskId.initiativeId.goalId`) — and links each to one of that goal's assignment slots via `agentAssignmentId`.
 8. Persists `weekPlan`, `scheduleSlots`, and `weekGoalAllocations` in one transaction. Tasks are not mutated — scheduling flows exclusively through agent assignments now.
 
 ### `updateSlot(id, input)`

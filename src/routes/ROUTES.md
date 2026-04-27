@@ -49,7 +49,7 @@ CRUD for top-level goal records. All writes derive `displayName` and `focusIcon`
 | Method | Path | Description | Body / Query | Response |
 |--------|------|-------------|-------------|----------|
 | `GET` | `/api/goals` | List all goals | `?focus=sprint\|steady\|simmer\|dormant` | `Goal[]` sorted by focus then `sortOrder` |
-| `GET` | `/api/goals/:id` | Get a single goal with its initiatives | — | `Goal & { initiatives: Initiative[] }` |
+| `GET` | `/api/goals/:id` | Get a single goal with its initiatives and goal-level agent assignments | — | `Goal & { initiatives: Initiative[], agentAssignments: AgentAssignment[] }` |
 | `POST` | `/api/goals` | Create a goal | `{ emoji, name, focus?, timeline?, story? }` | `201 Goal` |
 | `PATCH` | `/api/goals/:id` | Update a goal | `{ emoji?, name?, focus?, timeline?, story?, sortOrder? }` | `Goal` |
 | `DELETE` | `/api/goals/:id` | Hard-delete a goal (cascades to initiatives + tasks) | — | `204` |
@@ -68,7 +68,7 @@ CRUD for initiatives (projects/campaigns under a goal).
 | Method | Path | Description | Body / Query | Response |
 |--------|------|-------------|-------------|----------|
 | `GET` | `/api/initiatives` | List initiatives | `?goalId=<id>&status=active\|backlog\|paused\|completed` | `Initiative[]` sorted by `sortOrder` |
-| `GET` | `/api/initiatives/:id` | Get initiative with parent goal and tasks | — | `Initiative & { goal: Goal \| null, tasks: Task[] }` |
+| `GET` | `/api/initiatives/:id` | Get initiative with parent goal, tasks, and initiative-level agent assignments | — | `Initiative & { goal: Goal \| null, tasks: Task[], agentAssignments: AgentAssignment[] }` |
 | `POST` | `/api/initiatives` | Create an initiative | `{ emoji, name, goalId?, mission?, status? }` | `201 Initiative` |
 | `PATCH` | `/api/initiatives/:id` | Update an initiative | `{ emoji?, name?, status?, mission?, goalId?, sortOrder? }` | `Initiative` |
 | `POST` | `/api/initiatives/:id/complete` | Mark initiative complete; cancels all non-terminal tasks | — | `Initiative` |
@@ -140,16 +140,24 @@ Requirements are checklist items that gate task completion. Tests live under a r
 
 ## Agent Assignments
 
-Chunks of task work delegated to an agent. They're the unit that gets scheduled into slots (not tasks themselves).
+Chunks of work delegated to an agent. They're the unit that gets scheduled into slots. Parents are polymorphic: an assignment is attached to exactly one of a goal, initiative, or task.
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
-| `GET` | `/api/tasks/:taskId/agent-assignments` | List assignments for a task (each with the slots currently referencing it) | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
-| `POST` | `/api/tasks/:taskId/agent-assignments` | Create an assignment | `{ name, agentId?, instructions? }` | `201 AgentAssignment` |
+| `GET` | `/api/goals/:goalId/agent-assignments` | List assignments attached to a goal | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
+| `POST` | `/api/goals/:goalId/agent-assignments` | Create a goal-level assignment | `{ title, instructions, agentId? }` | `201 AgentAssignment` |
+| `GET` | `/api/initiatives/:initiativeId/agent-assignments` | List assignments attached to an initiative | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
+| `POST` | `/api/initiatives/:initiativeId/agent-assignments` | Create an initiative-level assignment | `{ title, instructions, agentId? }` | `201 AgentAssignment` |
+| `GET` | `/api/tasks/:taskId/agent-assignments` | List assignments attached to a task | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
+| `POST` | `/api/tasks/:taskId/agent-assignments` | Create a task-level assignment | `{ title, instructions, agentId? }` | `201 AgentAssignment` |
 | `GET` | `/api/agent-assignments/:id` | Get a single assignment | — | `AgentAssignment & { slots: ScheduleSlot[] }` |
-| `PATCH` | `/api/agent-assignments/:id` | Update editable fields | `{ name?, agentId?, instructions?, sortOrder? }` | `AgentAssignment` |
+| `PATCH` | `/api/agent-assignments/:id` | Update editable fields | `{ title?, instructions?, agentId?, sortOrder? }` | `AgentAssignment` |
 | `POST` | `/api/agent-assignments/:id/complete` | Set `completed: true` and stamp `completedAt` | — | `AgentAssignment` |
 | `DELETE` | `/api/agent-assignments/:id` | Hard-delete and clear any slots referencing it back to `flex` | — | `204` |
+
+**Notes:**
+- An assignment row carries exactly one of `goalId`, `initiativeId`, `taskId`. The parent kind is determined by which one is set; the other two are `null`.
+- Scheduling resolves an assignment's owning goal by walking the chain: direct `goalId` → `initiativeId.goalId` → `taskId.initiativeId.goalId`.
 
 ---
 

@@ -1,7 +1,7 @@
 import { eq, and, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
-import { goals, initiatives, tasks } from '../db/schema.js';
+import { goals, initiatives, tasks, agentAssignments } from '../db/schema.js';
 import {
   now,
   deriveDisplayName,
@@ -61,7 +61,13 @@ export async function getInitiative(id: string) {
     .where(eq(tasks.initiativeId, id))
     .orderBy(asc(tasks.sortOrder));
 
-  return { ...initiative, goal, tasks: initiativeTasks };
+  const aas = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.initiativeId, id))
+    .orderBy(asc(agentAssignments.sortOrder));
+
+  return { ...initiative, goal, tasks: initiativeTasks, agentAssignments: aas };
 }
 
 export async function createInitiative(input: CreateInitiativeInput) {
@@ -140,9 +146,26 @@ export async function deleteInitiative(id: string) {
   if (!existing) throw notFound('Initiative', id);
 
   db.transaction(tx => {
-    // Cascade: hard-delete tasks
-    tx.delete(tasks).where(eq(tasks.initiativeId, id)).run();
+    // Find tasks under this initiative so we can drop their AAs explicitly
+    const initiativeTasks = tx
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.initiativeId, id))
+      .all();
+    const taskIds = initiativeTasks.map(t => t.id);
 
+    if (taskIds.length > 0) {
+      tx.delete(agentAssignments)
+        .where(inArray(agentAssignments.taskId, taskIds))
+        .run();
+    }
+
+    // Initiative-direct AAs
+    tx.delete(agentAssignments)
+      .where(eq(agentAssignments.initiativeId, id))
+      .run();
+
+    tx.delete(tasks).where(eq(tasks.initiativeId, id)).run();
     tx.delete(initiatives).where(eq(initiatives.id, id)).run();
   });
 }
