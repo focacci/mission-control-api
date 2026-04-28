@@ -6,6 +6,7 @@ import {
   getTodayTokenUsage,
   setInvocationRunId,
 } from '../services/invocations.service.js';
+import { drainParts } from '../services/pendingParts.service.js';
 import {
   backfillToolCallMessageIds,
   recordToolCallResult,
@@ -15,6 +16,7 @@ import { getGatewayClient, GatewayRequestError } from './gatewayClient.js';
 import type { AgentEvent, AgentEventErrorCode } from './events.js';
 import { summarize } from './presenters.js';
 import { buildSystemPrompt } from './systemPrompt.js';
+import type { MessagePart } from '../types/index.types.js';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -407,12 +409,23 @@ async function flushAssistantBuffer(
   emit: (e: AgentEvent) => void,
 ): Promise<void> {
   const text = state.assistantBuffer;
-  if (!text) return;
+  // Drain interface-tool parts queued during this assistant block (Bucket 2b).
+  // The MCP dispatcher writes to `pending_message_parts` from a separate
+  // process; we pull them in insertion order and merge after the buffered text
+  // so the resulting transcript message is `[text?, card?, navigate?, …]`.
+  const queuedParts = await drainParts(state.invocationId);
+  if (!text && queuedParts.length === 0) return;
+
+  const parts: MessagePart[] = [];
+  if (text) parts.push({ kind: 'text', text });
+  parts.push(...queuedParts);
+
   const msg = await appendMessage({
     sessionId: state.sessionId,
     invocationId: state.invocationId,
     role: 'assistant',
     content: text,
+    parts,
   });
   state.currentMessageId = msg.id;
   state.assistantBuffer = '';

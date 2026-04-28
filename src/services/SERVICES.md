@@ -136,6 +136,12 @@
   - [`updateBrief`](#updatebriefid-input)
   - [`deleteBrief`](#deletebriefid)
   - [`upsertStubBrief`](#upsertstubbriefdate-kind)
+- [Pending Parts Service](#pending-parts-service)
+  - [`getActiveInvocationId`](#getactiveinvocationidsessionid)
+  - [`enqueuePart`](#enqueuepartsessionid-part)
+  - [`drainParts`](#drainpartsinvocationid)
+- [Attachments Service](#attachments-service)
+  - [`saveAttachment`](#saveattachmentinput)
 
 ---
 
@@ -1151,3 +1157,52 @@ Hard delete. Throws `AppError(404)` if the id is unknown.
 ### `upsertStubBrief(date, kind)`
 
 Internal helper for Track C: returns the existing `(date, kind)` row if one exists, otherwise inserts a `pending` stub so the runner has a row to update as it streams output. Not exposed via the REST API.
+
+---
+
+## Pending Parts Service
+
+Bridges the stdio MCP server (a separate process) and the in-process runner that owns the chat-transcript write path. Bucket 2b interface tools (`render_card`, `suggest_replies`, `navigate`, `attach`) call `enqueuePart`; the runner calls `drainParts` from inside `flushAssistantBuffer` to merge them into the persisted `chat_messages.parts`. See [`pendingParts.service.ts`](pendingParts.service.ts).
+
+### `getActiveInvocationId(sessionId)`
+
+```ts
+getActiveInvocationId(sessionId: string): Promise<string>
+```
+
+Returns the most recent `running` invocation id for the session. Throws `AppError(400)` when no in-flight turn exists (interface tools are only meaningful during an active assistant turn).
+
+### `enqueuePart(sessionId, part)`
+
+```ts
+enqueuePart(sessionId: string, part: MessagePart): Promise<{ invocationId: string; partId: string }>
+```
+
+Resolves the active invocation, then inserts a `pending_message_parts` row with the next per-invocation `sortOrder`. Idempotency is the caller's responsibility (each interface tool call produces a fresh row).
+
+### `drainParts(invocationId)`
+
+```ts
+drainParts(invocationId: string): Promise<MessagePart[]>
+```
+
+Reads every queued part for the invocation in insertion order and deletes the rows in the same call. Returns an empty array when the queue is empty. Called once per assistant-buffer flush.
+
+---
+
+## Attachments Service
+
+Persists base64 file payloads supplied by the `attach` interface tool. See [`attachments.service.ts`](attachments.service.ts).
+
+### `saveAttachment(input)`
+
+```ts
+saveAttachment(input: {
+  sessionId: string;
+  name: string;
+  mimeType: string;
+  data: string;     // base64
+}): { url: string; size: number; storedPath: string }
+```
+
+Writes the decoded payload to `WORKSPACE_PATH/attachments/<sessionId>/<id>-<sanitizedName>` (extension appended from the mime type if missing) and returns a `workspace://attachments/...` URL the iOS client resolves through the existing workspace mount. Throws `AppError(400)` for missing or undecodable `data`.

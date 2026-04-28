@@ -343,6 +343,22 @@ export const agentOutputSteps = sqliteTable('agent_output_steps', {
   durationMs: integer('duration_ms'),
 });
 
+// Bucket 2b interface tools (render_card, suggest_replies, navigate, attach,
+// ...) execute inside the stdio MCP server — a separate process from the
+// in-process runner that owns the chat_messages write path. This queue
+// bridges the two: the dispatcher inserts a part row when an interface tool
+// is called; the runner drains rows for the in-flight invocation when it
+// flushes the assistant buffer and merges them into the resulting
+// chat_messages.parts list.
+export const pendingMessageParts = sqliteTable('pending_message_parts', {
+  id: text('id').primaryKey(),
+  invocationId: text('invocation_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  part: text('part', { mode: 'json' }).$type<MessagePart>().notNull(),
+  sortOrder: integer('sort_order').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
 export const toolCallLog = sqliteTable('tool_call_log', {
   id: text('id').primaryKey(),
   messageId: text('message_id').references(() => chatMessages.id, { onDelete: 'cascade' }),

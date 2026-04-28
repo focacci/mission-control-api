@@ -17,6 +17,7 @@
 - [`agent_invocations`](#agent_invocations)
 - [`chat_messages`](#chat_messages)
 - [`tool_call_log`](#tool_call_log)
+- [`pending_message_parts`](#pending_message_parts)
 - [`agent_outputs`](#agent_outputs)
 - [`agent_output_steps`](#agent_output_steps)
 - [`profile_sections`](#profile_sections)
@@ -309,6 +310,23 @@ Structured record of every tool the model called during an invocation (primarily
 | `started_at` | `text` | ISO timestamp |
 | `ended_at` | `text` nullable | ISO timestamp when the result arrived |
 | `duration_ms` | `integer` nullable | populated on resolution |
+
+---
+
+## `pending_message_parts`
+
+Bridge between the stdio MCP server (a separate process) and the in-process runner that owns the chat-transcript write path. Each Bucket 2b interface tool (`render_card`, `suggest_replies`, `navigate`, `attach`) inserts a row here keyed on the in-flight invocation; the runner drains every row for the invocation when it next flushes the assistant buffer and merges them into the resulting `chat_messages.parts`. Empty in steady state — rows live only for the duration of a single assistant block.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text` PK | nanoid |
+| `invocation_id` | `text` | `agent_invocations.id` for the in-flight turn (no FK — read-only foreign reference) |
+| `session_id` | `text` | `chat_sessions.id` — denormalized for debugging |
+| `part` | `text` JSON | one `MessagePart` payload |
+| `sort_order` | `integer` | monotonic per-invocation insertion order |
+| `created_at` | `text` | ISO timestamp |
+
+Index: `pending_parts_invocation_idx (invocation_id, sort_order)` for the runner's drain query.
 
 ---
 

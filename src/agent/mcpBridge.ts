@@ -1,5 +1,11 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { AppError, today } from '../types/index.types.js';
+import {
+  AppError,
+  CARD_KINDS,
+  type CardKind,
+  type MessagePart,
+  today,
+} from '../types/index.types.js';
 import * as goalsService from '../services/goals.service.js';
 import * as initiativesService from '../services/initiatives.service.js';
 import * as tasksService from '../services/tasks.service.js';
@@ -13,6 +19,8 @@ import * as briefsService from '../services/briefs.service.js';
 import * as agentsService from '../services/agents.service.js';
 import * as conversationsService from '../services/conversations.service.js';
 import * as invocationsService from '../services/invocations.service.js';
+import * as pendingPartsService from '../services/pendingParts.service.js';
+import * as attachmentsService from '../services/attachments.service.js';
 import { runBufferedChatTurn } from './chatOrchestrator.js';
 import type { ChatSession } from '../services/conversations.service.js';
 
@@ -467,6 +475,94 @@ export const TOOLS = [
         since: { type: 'string', description: 'ISO timestamp — only invocations started at/after (list).' },
       },
       required: ['action'],
+    },
+  },
+  // -------------------------------------------------------------------------
+  // Bucket 2b — interface tools (MCP_TOOLKIT_PLAN). Each appends a structured
+  // part to the in-flight assistant message via the pending_message_parts
+  // queue, which the runner drains when it flushes the buffered text.
+  // -------------------------------------------------------------------------
+  {
+    name: 'render_card',
+    description:
+      "Append a rich entity card to the current assistant message. The iOS client renders the matching screen-row component for `cardType` keyed on `entityId`. Use when the natural reply is 'here's the thing' rather than a paragraph about it. Card kinds: 'task' | 'goal' | 'initiative' | 'agent_assignment' | 'slot' | 'schedule_day'.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Active chat session id (required).' },
+        cardType: {
+          type: 'string',
+          enum: [...CARD_KINDS],
+          description: 'Which card the iOS client should render.',
+        },
+        entityId: { type: 'string', description: 'Id of the goal/initiative/task/etc to hydrate.' },
+      },
+      required: ['sessionId', 'cardType', 'entityId'],
+    },
+  },
+  {
+    name: 'suggest_replies',
+    description:
+      "Append a row of tap-to-send quick reply chips above the iOS composer. Use sparingly — only when there's a small set of clearly-better-than-typing follow-ups (e.g. 'Yes / Not now / Tell me more'). Each suggestion needs a stable `id` and a short `label`.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Active chat session id (required).' },
+        suggestions: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 6,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              label: { type: 'string' },
+            },
+            required: ['id', 'label'],
+          },
+          description: '1–6 tap-to-send suggestions.',
+        },
+      },
+      required: ['sessionId', 'suggestions'],
+    },
+  },
+  {
+    name: 'navigate',
+    description:
+      'Append a tappable deep-link to the current assistant message. The iOS client renders it as a row beneath the assistant text and routes to `route` on tap. Use when the helpful next step is a screen, not more text.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Active chat session id (required).' },
+        route: {
+          type: 'string',
+          description: "Deep-link path the iOS router understands (e.g. '/tasks/<id>', '/schedule/today').",
+        },
+        label: { type: 'string', description: 'Tap label, e.g. "Open task" or "View today".' },
+      },
+      required: ['sessionId', 'route', 'label'],
+    },
+  },
+  {
+    name: 'attach',
+    description:
+      "Append a file attachment to the current assistant message. Provide either `sourceUrl` (already-served URL the iOS client can fetch) or `data` (base64 payload — gets written to WORKSPACE_PATH/attachments/<sessionId>/ and served as a workspace:// URL). `name` and `mimeType` are required for both.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Active chat session id (required).' },
+        name: { type: 'string', description: 'Display filename (e.g. "screenshot.png").' },
+        mimeType: { type: 'string', description: 'MIME type (e.g. "image/png", "application/pdf").' },
+        sourceUrl: {
+          type: 'string',
+          description: 'Already-served URL — used as-is when supplied (no upload).',
+        },
+        data: {
+          type: 'string',
+          description: 'Base64-encoded file payload — written to disk under the session attachments dir.',
+        },
+      },
+      required: ['sessionId', 'name', 'mimeType'],
     },
   },
   {
@@ -1049,6 +1145,87 @@ async function dispatchInvocations(action: string, args: Args): Promise<unknown>
 }
 
 // ---------------------------------------------------------------------------
+// Bucket 2b interface-tool dispatchers — each enqueues a MessagePart that the
+// runner merges into the in-flight assistant message at flush time.
+// ---------------------------------------------------------------------------
+
+async function dispatchRenderCard(args: Args): Promise<unknown> {
+  const sessionId = requireArg<string>(args, 'sessionId');
+  const cardType = requireArg<string>(args, 'cardType') as CardKind;
+  const entityId = requireArg<string>(args, 'entityId');
+  if (!CARD_KINDS.includes(cardType)) {
+    throw new AppError(400, `render_card: unknown cardType "${cardType}".`);
+  }
+  const part: MessagePart = { kind: 'card', cardType, entityId };
+  const { invocationId, partId } = await pendingPartsService.enqueuePart(sessionId, part);
+  return { rendered: true, partId, invocationId };
+}
+
+async function dispatchSuggestReplies(args: Args): Promise<unknown> {
+  const sessionId = requireArg<string>(args, 'sessionId');
+  const suggestions = requireArg<Array<{ id: string; label: string }>>(args, 'suggestions');
+  if (!Array.isArray(suggestions) || suggestions.length === 0) {
+    throw new AppError(400, 'suggest_replies: `suggestions` must be a non-empty array.');
+  }
+  for (const s of suggestions) {
+    if (!s || typeof s.id !== 'string' || typeof s.label !== 'string') {
+      throw new AppError(400, 'suggest_replies: each suggestion needs `id` and `label` strings.');
+    }
+  }
+  const part: MessagePart = { kind: 'quick_replies', suggestions };
+  const { invocationId, partId } = await pendingPartsService.enqueuePart(sessionId, part);
+  return { rendered: true, partId, invocationId };
+}
+
+async function dispatchNavigate(args: Args): Promise<unknown> {
+  const sessionId = requireArg<string>(args, 'sessionId');
+  const route = requireArg<string>(args, 'route');
+  const label = requireArg<string>(args, 'label');
+  const part: MessagePart = { kind: 'navigate', route, label };
+  const { invocationId, partId } = await pendingPartsService.enqueuePart(sessionId, part);
+  return { rendered: true, partId, invocationId };
+}
+
+async function dispatchAttach(args: Args): Promise<unknown> {
+  const sessionId = requireArg<string>(args, 'sessionId');
+  const name = requireArg<string>(args, 'name');
+  const mimeType = requireArg<string>(args, 'mimeType');
+  const sourceUrl = optArg<string>(args, 'sourceUrl');
+  const data = optArg<string>(args, 'data');
+  if (!sourceUrl && !data) {
+    throw new AppError(400, 'attach: provide either `sourceUrl` or `data`.');
+  }
+  if (sourceUrl && data) {
+    throw new AppError(400, 'attach: provide only one of `sourceUrl` or `data`.');
+  }
+
+  let url: string;
+  let size: number | undefined;
+  if (sourceUrl) {
+    url = sourceUrl;
+  } else {
+    const saved = attachmentsService.saveAttachment({
+      sessionId,
+      name,
+      mimeType,
+      data: data!,
+    });
+    url = saved.url;
+    size = saved.size;
+  }
+
+  const part: MessagePart = {
+    kind: 'attachment',
+    mimeType,
+    name,
+    url,
+    ...(size !== undefined ? { size } : {}),
+  };
+  const { invocationId, partId } = await pendingPartsService.enqueuePart(sessionId, part);
+  return { rendered: true, partId, invocationId, url, size };
+}
+
+// ---------------------------------------------------------------------------
 // Top-level dispatch
 // ---------------------------------------------------------------------------
 
@@ -1103,6 +1280,14 @@ export async function dispatch(name: string, args: Args): Promise<unknown> {
       return dispatchChat(requireArg<string>(args, 'action'), args);
     case 'invocations':
       return dispatchInvocations(requireArg<string>(args, 'action'), args);
+    case 'render_card':
+      return dispatchRenderCard(args);
+    case 'suggest_replies':
+      return dispatchSuggestReplies(args);
+    case 'navigate':
+      return dispatchNavigate(args);
+    case 'attach':
+      return dispatchAttach(args);
     default:
       throw new AppError(404, `Unknown tool: ${name}`);
   }

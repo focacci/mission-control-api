@@ -27,7 +27,10 @@ const EXPECTED_TOOLS = [
   'board', 'current_context', 'pin_to_context',
   'goals', 'initiatives', 'tasks', 'requirements',
   'agent_assignments', 'schedule', 'profile', 'context_groups',
-  'briefings', 'agents', 'chat', 'invocations', 'health',
+  'briefings', 'agents', 'chat', 'invocations',
+  // Bucket 2b interface tools.
+  'render_card', 'suggest_replies', 'navigate', 'attach',
+  'health',
 ];
 
 const FORCE_BOARD_PROMPT =
