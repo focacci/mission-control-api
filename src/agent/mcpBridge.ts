@@ -14,6 +14,7 @@ import * as agentsService from '../services/agents.service.js';
 import * as conversationsService from '../services/conversations.service.js';
 import * as invocationsService from '../services/invocations.service.js';
 import { runBufferedChatTurn } from './chatOrchestrator.js';
+import type { ChatSession } from '../services/conversations.service.js';
 
 // ---------------------------------------------------------------------------
 // Coarse-grained tool definitions (one tool per domain aggregate).
@@ -35,9 +36,38 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'current_context',
+    description:
+      'Snapshot of the chat session\'s anchor context, with the linked entity hydrated. Prefer this over chaining chat.get_session → tasks.get / goals.get / etc. Returns { sessionId, agentId, contextType, contextId, title, resolvedEntity }. `resolvedEntity` is the goal / initiative / task / agent_assignment / brief row when contextType is one of those, otherwise null.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Chat session id (required).' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'pin_to_context',
+    description:
+      "Pin an entity reference onto the active chat session. v1 semantics: only writes if the session has no context yet — if already anchored, returns { pinned: false, reason: 'already_anchored' } without overwriting. Use this when a chat that started unanchored has clearly drifted onto a specific task/goal/initiative.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Chat session id (required).' },
+        contextType: {
+          type: 'string',
+          description: "Target context type, e.g. 'goal' | 'initiative' | 'task' | 'agent_assignment' | 'brief'.",
+        },
+        contextId: { type: 'string', description: 'Target entity id (null allowed for non-entity kinds).' },
+      },
+      required: ['sessionId', 'contextType'],
+    },
+  },
+  {
     name: 'goals',
     description:
-      'Manage goals (top-level objectives with focus levels). Actions: list, get, create, update, delete.',
+      'Manage goals (top-level objectives with focus levels). Actions: list, get, create, update, delete. For get/update/delete, `id` defaults to the active session\'s goal context when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -46,7 +76,11 @@ export const TOOLS = [
           enum: ['list', 'get', 'create', 'update', 'delete'],
           description: 'Operation to perform.',
         },
-        id: { type: 'string', description: 'Goal ID (required for get/update/delete).' },
+        sessionId: {
+          type: 'string',
+          description: 'Active chat session — used to default `id` from session context when omitted.',
+        },
+        id: { type: 'string', description: 'Goal ID. Defaults to session context id when sessionId is set and contextType is `goal`.' },
         emoji: { type: 'string', description: 'Emoji for create/update.' },
         name: { type: 'string', description: 'Goal name for create/update.' },
         focus: {
@@ -64,7 +98,7 @@ export const TOOLS = [
   {
     name: 'initiatives',
     description:
-      'Manage initiatives (actionable projects under goals). Actions: list, get, create, update, complete, delete.',
+      'Manage initiatives (actionable projects under goals). Actions: list, get, create, update, complete, delete. For non-list/create actions, `id` defaults to the active session\'s initiative context when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -73,7 +107,11 @@ export const TOOLS = [
           enum: ['list', 'get', 'create', 'update', 'complete', 'delete'],
           description: 'Operation to perform.',
         },
-        id: { type: 'string', description: 'Initiative ID (required for get/update/complete/delete).' },
+        sessionId: {
+          type: 'string',
+          description: 'Active chat session — used to default `id` from session context when omitted.',
+        },
+        id: { type: 'string', description: 'Initiative ID. Defaults to session context id when sessionId is set and contextType is `initiative`.' },
         goalId: { type: 'string', description: 'Parent goal ID. For list: filters. For create/update: links.' },
         emoji: { type: 'string', description: 'Emoji for create/update.' },
         name: { type: 'string', description: 'Name for create/update.' },
@@ -91,7 +129,7 @@ export const TOOLS = [
   {
     name: 'tasks',
     description:
-      'Manage tasks (human-owned work). Actions: list, get, create, update, start, complete, block, cancel, delete. Requirements and agent assignments live on their own tools.',
+      'Manage tasks (human-owned work). Actions: list, get, create, update, start, complete, block, cancel, delete. Requirements and agent assignments live on their own tools. For non-list/create actions, `id` defaults to the active session\'s task context when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -102,7 +140,11 @@ export const TOOLS = [
           ],
           description: 'Operation to perform.',
         },
-        id: { type: 'string', description: 'Task ID (required for most actions except list/create).' },
+        sessionId: {
+          type: 'string',
+          description: 'Active chat session — used to default `id` from session context when omitted.',
+        },
+        id: { type: 'string', description: 'Task ID. Defaults to session context id when sessionId is set and contextType is `task`.' },
         initiativeId: { type: 'string', description: 'Parent initiative ID. For list: filter. For create: link.' },
         name: { type: 'string', description: 'Task name (create/update).' },
         objective: { type: 'string', description: 'Definition of done (create/update).' },
@@ -125,7 +167,7 @@ export const TOOLS = [
   {
     name: 'requirements',
     description:
-      'Manage task requirements and their tests. Actions: add, update, check, uncheck, delete, add_test, update_test, pass_test, unpass_test, delete_test.',
+      'Manage task requirements and their tests. Actions: add, update, check, uncheck, delete, add_test, update_test, pass_test, unpass_test, delete_test. For `add`, `taskId` defaults to the active session\'s task context when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -137,7 +179,11 @@ export const TOOLS = [
           ],
           description: 'Operation to perform.',
         },
-        taskId: { type: 'string', description: 'Parent task ID (required for add).' },
+        sessionId: {
+          type: 'string',
+          description: 'Active chat session — used to default `taskId` from session context when omitted.',
+        },
+        taskId: { type: 'string', description: 'Parent task ID. Defaults to session context id when sessionId is set and contextType is `task`.' },
         reqId: { type: 'string', description: 'Requirement ID (required for non-add actions).' },
         testId: { type: 'string', description: 'Test ID (required for *_test actions except add_test).' },
         description: { type: 'string', description: 'Description for add/update.' },
@@ -150,7 +196,7 @@ export const TOOLS = [
   {
     name: 'agent_assignments',
     description:
-      'Manage agent assignments (discrete agent work attached to a goal, initiative, or task). Actions: list, get, create, update, start, complete, block, reopen, unassign, delete. For list/create, supply exactly one parent: goalId, initiativeId, or taskId. `unassign` clears any scheduled slot links and resets status to pending.',
+      'Manage agent assignments (discrete agent work attached to a goal, initiative, or task). Actions: list, get, create, update, start, complete, block, reopen, unassign, delete. For list/create, supply exactly one parent: goalId, initiativeId, or taskId (parent ids also default from session context when sessionId is set). `unassign` clears any scheduled slot links and resets status to pending. For non-list/create actions, `id` defaults to the active session\'s agent_assignment context when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -159,7 +205,11 @@ export const TOOLS = [
           enum: ['list', 'get', 'create', 'update', 'start', 'complete', 'block', 'reopen', 'unassign', 'delete'],
           description: 'Operation to perform.',
         },
-        id: { type: 'string', description: 'Agent assignment ID (required for non-list/create actions).' },
+        sessionId: {
+          type: 'string',
+          description: 'Active chat session — used to default `id` (or list/create parent) from session context when omitted.',
+        },
+        id: { type: 'string', description: 'Agent assignment ID. Defaults to session context id when sessionId is set and contextType is `agent_assignment`.' },
         goalId: { type: 'string', description: 'Parent goal ID (list/create).' },
         initiativeId: { type: 'string', description: 'Parent initiative ID (list/create).' },
         taskId: { type: 'string', description: 'Parent task ID (list/create).' },
@@ -447,6 +497,61 @@ function optArg<T>(args: Args, key: string): T | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Session-context helpers (Bucket 1 of MCP_TOOLKIT_PLAN)
+// ---------------------------------------------------------------------------
+
+async function loadSessionForArgs(args: Args): Promise<ChatSession | null> {
+  const sessionId = optArg<string>(args, 'sessionId');
+  if (!sessionId) return null;
+  try {
+    return await conversationsService.getSession(sessionId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve an entity id from explicit args first, falling back to the active
+ * chat session's context when its `contextType` matches `expectedContextType`.
+ * Throws a 400 if neither path yields an id, mirroring `requireArg`.
+ */
+async function resolveEntityId(
+  args: Args,
+  argKey: string,
+  expectedContextType: string,
+): Promise<string> {
+  const explicit = optArg<string>(args, argKey);
+  if (explicit) return explicit;
+  const session = await loadSessionForArgs(args);
+  if (session && session.contextType === expectedContextType && session.contextId) {
+    return session.contextId;
+  }
+  throw new AppError(
+    400,
+    `Missing required field: ${argKey} (no ${expectedContextType} in session context).`,
+  );
+}
+
+async function resolveContextEntity(
+  contextType: string | null,
+  contextId: string | null,
+): Promise<unknown | null> {
+  if (!contextType || !contextId) return null;
+  try {
+    switch (contextType) {
+      case 'goal':             return await goalsService.getGoal(contextId);
+      case 'initiative':       return await initiativesService.getInitiative(contextId);
+      case 'task':             return await tasksService.getTask(contextId);
+      case 'agent_assignment': return await aaService.getAgentAssignment(contextId);
+      case 'brief':            return await briefsService.getBrief(contextId);
+      default:                 return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Domain dispatchers
 // ---------------------------------------------------------------------------
 
@@ -455,7 +560,7 @@ async function dispatchGoals(action: string, args: Args): Promise<unknown> {
     case 'list':
       return goalsService.listGoals({ focus: optArg<string>(args, 'focus') });
     case 'get':
-      return goalsService.getGoal(requireArg<string>(args, 'id'));
+      return goalsService.getGoal(await resolveEntityId(args, 'id', 'goal'));
     case 'create':
       return goalsService.createGoal({
         emoji: requireArg<string>(args, 'emoji'),
@@ -465,7 +570,7 @@ async function dispatchGoals(action: string, args: Args): Promise<unknown> {
         story: optArg<string>(args, 'story'),
       });
     case 'update':
-      return goalsService.updateGoal(requireArg<string>(args, 'id'), {
+      return goalsService.updateGoal(await resolveEntityId(args, 'id', 'goal'), {
         emoji: optArg<string>(args, 'emoji'),
         name: optArg<string>(args, 'name'),
         focus: optArg<string>(args, 'focus') as 'sprint' | 'steady' | 'simmer' | 'dormant' | undefined,
@@ -474,7 +579,7 @@ async function dispatchGoals(action: string, args: Args): Promise<unknown> {
         sortOrder: optArg<number>(args, 'sortOrder'),
       });
     case 'delete':
-      await goalsService.deleteGoal(requireArg<string>(args, 'id'));
+      await goalsService.deleteGoal(await resolveEntityId(args, 'id', 'goal'));
       return { deleted: true };
     default:
       throw new AppError(400, `Unknown goals action: ${action}`);
@@ -489,7 +594,7 @@ async function dispatchInitiatives(action: string, args: Args): Promise<unknown>
         status: optArg<string>(args, 'status'),
       });
     case 'get':
-      return initiativesService.getInitiative(requireArg<string>(args, 'id'));
+      return initiativesService.getInitiative(await resolveEntityId(args, 'id', 'initiative'));
     case 'create':
       return initiativesService.createInitiative({
         emoji: requireArg<string>(args, 'emoji'),
@@ -499,7 +604,7 @@ async function dispatchInitiatives(action: string, args: Args): Promise<unknown>
         status: (optArg<string>(args, 'status') as 'active' | 'backlog' | 'paused' | 'completed' | undefined) ?? 'active',
       });
     case 'update':
-      return initiativesService.updateInitiative(requireArg<string>(args, 'id'), {
+      return initiativesService.updateInitiative(await resolveEntityId(args, 'id', 'initiative'), {
         emoji: optArg<string>(args, 'emoji'),
         name: optArg<string>(args, 'name'),
         status: optArg<string>(args, 'status') as 'active' | 'backlog' | 'paused' | 'completed' | undefined,
@@ -508,9 +613,9 @@ async function dispatchInitiatives(action: string, args: Args): Promise<unknown>
         sortOrder: optArg<number>(args, 'sortOrder'),
       });
     case 'complete':
-      return initiativesService.completeInitiative(requireArg<string>(args, 'id'));
+      return initiativesService.completeInitiative(await resolveEntityId(args, 'id', 'initiative'));
     case 'delete':
-      await initiativesService.deleteInitiative(requireArg<string>(args, 'id'));
+      await initiativesService.deleteInitiative(await resolveEntityId(args, 'id', 'initiative'));
       return { deleted: true };
     default:
       throw new AppError(400, `Unknown initiatives action: ${action}`);
@@ -525,7 +630,7 @@ async function dispatchTasks(action: string, args: Args): Promise<unknown> {
         status: optArg<string | string[]>(args, 'status'),
       });
     case 'get':
-      return tasksService.getTask(requireArg<string>(args, 'id'));
+      return tasksService.getTask(await resolveEntityId(args, 'id', 'task'));
     case 'create':
       return tasksService.createTask({
         name: requireArg<string>(args, 'name'),
@@ -534,20 +639,20 @@ async function dispatchTasks(action: string, args: Args): Promise<unknown> {
         requirements: optArg<string[]>(args, 'requirements') ?? [],
       });
     case 'update':
-      return tasksService.updateTask(requireArg<string>(args, 'id'), {
+      return tasksService.updateTask(await resolveEntityId(args, 'id', 'task'), {
         name: optArg<string>(args, 'name'),
         objective: optArg<string>(args, 'objective'),
         status: optArg<string>(args, 'status') as any,
         sortOrder: optArg<number>(args, 'sortOrder'),
       });
     case 'complete':
-      return tasksService.doneTask(requireArg<string>(args, 'id'), {
+      return tasksService.doneTask(await resolveEntityId(args, 'id', 'task'), {
         summary: requireArg<string>(args, 'summary'),
       });
     case 'reopen':
-      return tasksService.reopenTask(requireArg<string>(args, 'id'));
+      return tasksService.reopenTask(await resolveEntityId(args, 'id', 'task'));
     case 'delete':
-      await tasksService.deleteTask(requireArg<string>(args, 'id'));
+      await tasksService.deleteTask(await resolveEntityId(args, 'id', 'task'));
       return { deleted: true };
     default:
       throw new AppError(400, `Unknown tasks action: ${action}`);
@@ -558,7 +663,7 @@ async function dispatchRequirements(action: string, args: Args): Promise<unknown
   switch (action) {
     case 'add':
       return requirementsService.addRequirement(
-        requireArg<string>(args, 'taskId'),
+        await resolveEntityId(args, 'taskId', 'task'),
         requireArg<string>(args, 'description'),
       );
     case 'update':
@@ -608,12 +713,12 @@ async function dispatchRequirements(action: string, args: Args): Promise<unknown
   }
 }
 
-function resolveAAParent(args: Args): { kind: 'goal' | 'initiative' | 'task'; id: string } {
+async function resolveAAParent(args: Args): Promise<{ kind: 'goal' | 'initiative' | 'task'; id: string }> {
   const goalId = optArg<string>(args, 'goalId');
   const initiativeId = optArg<string>(args, 'initiativeId');
   const taskId = optArg<string>(args, 'taskId');
   const provided = [goalId, initiativeId, taskId].filter(Boolean);
-  if (provided.length !== 1) {
+  if (provided.length > 1) {
     throw new AppError(
       400,
       'Provide exactly one parent: goalId, initiativeId, or taskId.',
@@ -621,19 +726,30 @@ function resolveAAParent(args: Args): { kind: 'goal' | 'initiative' | 'task'; id
   }
   if (goalId) return { kind: 'goal', id: goalId };
   if (initiativeId) return { kind: 'initiative', id: initiativeId };
-  return { kind: 'task', id: taskId! };
+  if (taskId) return { kind: 'task', id: taskId };
+  // Fall back to chat-session anchor.
+  const session = await loadSessionForArgs(args);
+  if (session && session.contextId) {
+    if (session.contextType === 'goal')        return { kind: 'goal', id: session.contextId };
+    if (session.contextType === 'initiative')  return { kind: 'initiative', id: session.contextId };
+    if (session.contextType === 'task')        return { kind: 'task', id: session.contextId };
+  }
+  throw new AppError(
+    400,
+    'Provide exactly one parent: goalId, initiativeId, or taskId (or set sessionId to one anchored on a goal/initiative/task).',
+  );
 }
 
 async function dispatchAgentAssignments(action: string, args: Args): Promise<unknown> {
   switch (action) {
     case 'list': {
-      const parent = resolveAAParent(args);
+      const parent = await resolveAAParent(args);
       return aaService.listAgentAssignmentsForParent(parent.kind, parent.id);
     }
     case 'get':
-      return aaService.getAgentAssignment(requireArg<string>(args, 'id'));
+      return aaService.getAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'));
     case 'create': {
-      const parent = resolveAAParent(args);
+      const parent = await resolveAAParent(args);
       return aaService.createAgentAssignmentForParent(parent.kind, parent.id, {
         title: requireArg<string>(args, 'title'),
         description: optArg<string | null>(args, 'description'),
@@ -641,24 +757,24 @@ async function dispatchAgentAssignments(action: string, args: Args): Promise<unk
       });
     }
     case 'update':
-      return aaService.updateAgentAssignment(requireArg<string>(args, 'id'), {
+      return aaService.updateAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'), {
         title: optArg<string>(args, 'title'),
         description: optArg<string | null>(args, 'description'),
         agentId: optArg<string | null>(args, 'agentId'),
         sortOrder: optArg<number>(args, 'sortOrder'),
       });
     case 'start':
-      return aaService.startAgentAssignment(requireArg<string>(args, 'id'));
+      return aaService.startAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'));
     case 'complete':
-      return aaService.completeAgentAssignment(requireArg<string>(args, 'id'));
+      return aaService.completeAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'));
     case 'block':
-      return aaService.blockAgentAssignment(requireArg<string>(args, 'id'));
+      return aaService.blockAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'));
     case 'reopen':
-      return aaService.reopenAgentAssignment(requireArg<string>(args, 'id'));
+      return aaService.reopenAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'));
     case 'unassign':
-      return aaService.unassignAgentAssignment(requireArg<string>(args, 'id'));
+      return aaService.unassignAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'));
     case 'delete':
-      await aaService.deleteAgentAssignment(requireArg<string>(args, 'id'));
+      await aaService.deleteAgentAssignment(await resolveEntityId(args, 'id', 'agent_assignment'));
       return { deleted: true };
     default:
       throw new AppError(400, `Unknown agent_assignments action: ${action}`);
@@ -943,6 +1059,25 @@ export async function dispatch(name: string, args: Args): Promise<unknown> {
     case 'health': {
       const allGoals = await goalsService.listGoals({});
       return { status: 'ok', goals: allGoals.length };
+    }
+    case 'current_context': {
+      const session = await conversationsService.getSession(requireArg<string>(args, 'sessionId'));
+      const resolvedEntity = await resolveContextEntity(session.contextType, session.contextId);
+      return {
+        sessionId: session.id,
+        agentId: session.agentId,
+        contextType: session.contextType,
+        contextId: session.contextId,
+        title: session.title,
+        resolvedEntity,
+      };
+    }
+    case 'pin_to_context': {
+      return conversationsService.pinSessionContext(
+        requireArg<string>(args, 'sessionId'),
+        requireArg<string>(args, 'contextType'),
+        optArg<string | null>(args, 'contextId') ?? null,
+      );
     }
     case 'goals':
       return dispatchGoals(requireArg<string>(args, 'action'), args);

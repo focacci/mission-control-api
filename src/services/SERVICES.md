@@ -83,6 +83,15 @@
   - [`createSession`](#createsessioninput)
   - [`findOrCreateSession`](#findorcreatesessioninput)
   - [`getSession`](#getsessionid)
+  - [`pinSessionContext`](#pinsessioncontextid-contexttype-contextid)
+  - [`listSessions`](#listsessionsopts-1)
+  - [`deleteSession`](#deletesessionid)
+  - [`appendMessage`](#appendmessageinput)
+  - [`listMessages`](#listmessagessessionid-opts)
+  - [`getMessageCount`](#getmessagecountsessionid)
+  - [`createSession`](#createsessioninput)
+  - [`findOrCreateSession`](#findorcreatesessioninput)
+  - [`getSession`](#getsessionid)
   - [`listSessions`](#listsessionsopts)
   - [`deleteSession`](#deletesessionid)
   - [`appendMessage`](#appendmessageinput)
@@ -794,6 +803,18 @@ Returns the most recent session matching the `(agentId, contextType, contextId)`
 ### `getSession(id)`
 
 Returns a single row. Throws `notFound('ChatSession', id)` if missing.
+
+### `pinSessionContext(id, contextType, contextId)`
+
+```ts
+pinSessionContext(
+  id: string,
+  contextType: string,
+  contextId: string | null,
+): Promise<{ pinned: boolean; reason?: string; session: ChatSession }>
+```
+
+Idempotently anchors a session: writes `contextType`/`contextId` only if the session has no anchor yet. If `session.contextType` is already set, returns `{ pinned: false, reason: 'already_anchored', session }` without overwriting. Used by the `pin_to_context` MCP tool (Bucket 1 of `Plans/MCP_TOOLKIT_PLAN.md`); single-anchor by design until multi-context lands.
 
 ### `listSessions(opts)`
 

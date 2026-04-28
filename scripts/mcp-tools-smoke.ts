@@ -24,7 +24,8 @@ const AGENT_ID = 'intella';
 // materialized tool set for the server; everything beyond `board` is checked
 // against the registry rather than by forcing a call per tool.
 const EXPECTED_TOOLS = [
-  'board', 'goals', 'initiatives', 'tasks', 'requirements',
+  'board', 'current_context', 'pin_to_context',
+  'goals', 'initiatives', 'tasks', 'requirements',
   'agent_assignments', 'schedule', 'profile', 'context_groups',
   'briefings', 'agents', 'chat', 'invocations', 'health',
 ];

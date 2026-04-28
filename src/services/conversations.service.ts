@@ -101,6 +101,29 @@ export async function getSession(id: string): Promise<ChatSession> {
   return row;
 }
 
+/**
+ * Pin a context onto a session — but only if the session does not already have
+ * one. Per the MCP_TOOLKIT_PLAN Bucket 1 semantics, this never overwrites an
+ * existing anchor; callers learn whether the pin took via the returned `pinned`
+ * flag.
+ */
+export async function pinSessionContext(
+  id: string,
+  contextType: string,
+  contextId: string | null,
+): Promise<{ pinned: boolean; reason?: string; session: ChatSession }> {
+  const session = await getSession(id);
+  if (session.contextType) {
+    return { pinned: false, reason: 'already_anchored', session };
+  }
+  const [updated] = await db
+    .update(chatSessions)
+    .set({ contextType, contextId: contextId ?? null })
+    .where(eq(chatSessions.id, id))
+    .returning();
+  return { pinned: true, session: updated };
+}
+
 export async function listSessions(opts: ListSessionsOpts): Promise<ChatSession[]> {
   const conditions: SQL[] = [];
   if (opts.agentId) conditions.push(eq(chatSessions.agentId, opts.agentId));

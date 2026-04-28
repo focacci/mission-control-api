@@ -77,6 +77,25 @@ function buildUserMessage(params: HandleChatTurnParams): string {
 }
 
 /**
+ * Build the session-metadata block injected into `extraSystemPrompt` so the
+ * agent can read its anchor context once and pass `sessionId` (or the resolved
+ * entity id) into MCP tool calls. Mirrors §3.4 in MCP_TOOLKIT_PLAN.md (Bucket 1).
+ */
+function buildSessionMetadataBlock(
+  session: ChatSession,
+  ctx: ChatContextInput | undefined,
+): string {
+  const lines = ['Active session:'];
+  lines.push(`  session_id: ${session.id}`);
+  lines.push(`  agent_id: ${session.agentId}`);
+  if (session.contextType) lines.push(`  context_type: ${session.contextType}`);
+  if (session.contextId) lines.push(`  context_id: ${session.contextId}`);
+  if (ctx?.section) lines.push(`  section: ${ctx.section}`);
+  if (ctx?.date) lines.push(`  date: ${ctx.date}`);
+  return lines.join('\n');
+}
+
+/**
  * Glue between the route handler and the runner. Resolves session, persists
  * the user message, starts an invocation, then delegates to the runner.
  *
@@ -105,6 +124,8 @@ export async function handleChatTurn(
     model: DEFAULT_MODEL,
   });
 
+  const systemPromptAdditions = buildSessionMetadataBlock(session, params.context);
+
   try {
     await run(
       {
@@ -113,6 +134,7 @@ export async function handleChatTurn(
         agentId,
         model: DEFAULT_MODEL,
         initialUserMessage: userContent,
+        systemPromptAdditions,
         onEvent: params.onEvent,
       },
       runnerOpts,
