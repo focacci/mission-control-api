@@ -65,6 +65,7 @@
   - [`unassignAgentAssignment`](#unassignagentassignmentslotid)
   - [`addSlotOutput`](#addslotoutputslotid-input)
   - [`deleteSlotOutput`](#deleteslotoutputslotid-outputid)
+  - [`suggestSlotsForAssignment`](#suggestslotsforassignmentaaid-weestart-limit)
   - [`findDueSlots`](#finddueslotsnowlocaldatetime)
   - [`claimSlotForRun`](#claimslotforrunslotid)
 - [Slot Runner](#slot-runner)
@@ -647,6 +648,30 @@ deleteSlotOutput(slotId: string, outputId: string): Promise<void>
 ```
 
 Removes the output. Validates both ids match.
+
+### `suggestSlotsForAssignment(aaId, weekStart?, limit?)`
+
+```ts
+suggestSlotsForAssignment(
+  agentAssignmentId: string,
+  weekStart?: string,
+  limit?: number,
+): Promise<SlotSuggestion[]>
+```
+
+Returns up to `limit` (default 5) ranked slot candidates for placing the given agent assignment in `weekStart`'s plan (defaults to current week). Pure read; no mutation. Throws `AppError(404)` when the AA or the week plan does not exist, and `AppError(400)` when the AA is already `done`.
+
+Eligibility filter: `status = 'pending'`, `agentAssignmentId IS NULL`, `type ∈ {'agent_assignment','flex'}`. Ranking, in order:
+
+1. Goal allocation match (`type = 'agent_assignment'` slot allocated to the AA's resolved goal): +100, reason `"allocated to this goal"`.
+2. `agent_assignment` slot allocated to a different goal: +10, reason `"allocated to a different goal"`. (Use sparingly — assigning here re-aims that goal's allocation.)
+3. `agent_assignment` slot with no goal: +40.
+4. `flex` slot: +50, reason `"open flex slot"`.
+5. Proximity: `-2` per day from today; past dates also receive `-200` and the reason is suffixed `(past)`.
+
+Ties break by ascending `datetime`. The AA's parent goal is resolved via [`resolveGoalIdsForAssignments`](#resolvegoalidsforassignmentsaaids), so it works for goal-, initiative-, and task-parented assignments. Pair with [`assignAgentAssignment`](#assignagentassignmentaaid-slotid) once the user picks a candidate.
+
+`SlotSuggestion` shape: `{ slotId, datetime, date, time, type, goalId, score, reason }`.
 
 ### `findDueSlots(nowLocalDatetime)`
 

@@ -74,6 +74,24 @@ export async function scheduleRoutes(app: FastifyInstance) {
     return scheduleService.assignAgentAssignment(parsed.agentAssignmentId, parsed.slotId);
   });
 
+  // GET /api/schedule/suggest?agentAssignmentId=...&weekStart=YYYY-MM-DD&limit=N
+  app.get('/api/schedule/suggest', async request => {
+    const query = request.query as Record<string, string | undefined>;
+    const agentAssignmentId = query.agentAssignmentId;
+    if (!agentAssignmentId) {
+      throw new AppError(400, '`agentAssignmentId` query param is required');
+    }
+    const limit = query.limit ? Number(query.limit) : undefined;
+    if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
+      throw new AppError(400, '`limit` must be a positive number');
+    }
+    return scheduleService.suggestSlotsForAssignment(
+      agentAssignmentId,
+      query.weekStart,
+      limit,
+    );
+  });
+
   // DELETE /api/schedule/slots/:id/assignment
   app.delete('/api/schedule/slots/:id/assignment', async request => {
     const { id } = request.params as { id: string };

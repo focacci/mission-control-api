@@ -474,6 +474,125 @@ function computeAllocations(activeGoals: (typeof goals.$inferSelect)[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Suggest placement (Bucket 2c — MCP_TOOLKIT_PLAN)
+// ---------------------------------------------------------------------------
+
+export interface SlotSuggestion {
+  slotId: string;
+  datetime: string;
+  date: string;
+  time: string;
+  type: 'agent_assignment' | 'flex';
+  goalId: string | null;
+  score: number;
+  reason: string;
+}
+
+/**
+ * Returns up to `limit` candidate slots for placing the given agent assignment.
+ * Considers only `pending`, unassigned slots of type `agent_assignment` or
+ * `flex` in the target week. Ranks by goal-allocation match → slot type →
+ * proximity to today. Pure read; no state change.
+ */
+export async function suggestSlotsForAssignment(
+  agentAssignmentId: string,
+  weekStart?: string,
+  limit = 5,
+): Promise<SlotSuggestion[]> {
+  const [aa] = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.id, agentAssignmentId));
+  if (!aa) throw notFound('AgentAssignment', agentAssignmentId);
+  if (aa.status === 'done') {
+    throw new AppError(400, 'Cannot suggest placement for a completed agent assignment');
+  }
+
+  const goalMap = await resolveGoalIdsForAssignments([agentAssignmentId]);
+  const aaGoalId = goalMap.get(agentAssignmentId) ?? null;
+
+  const normalizedStart = getSundayOf(weekStart);
+  const [plan] = await db
+    .select()
+    .from(weekPlans)
+    .where(eq(weekPlans.weekStart, normalizedStart));
+  if (!plan) {
+    throw new AppError(
+      404,
+      `No week plan for ${normalizedStart} — generate it before requesting suggestions`,
+    );
+  }
+
+  const slots = await db
+    .select()
+    .from(scheduleSlots)
+    .where(
+      and(
+        eq(scheduleSlots.weekPlanId, plan.id),
+        eq(scheduleSlots.status, 'pending'),
+        inArray(scheduleSlots.type, ['agent_assignment', 'flex']),
+      ),
+    )
+    .orderBy(asc(scheduleSlots.datetime));
+
+  const todayISO = today();
+  const candidates: SlotSuggestion[] = [];
+
+  for (const s of slots) {
+    if (s.agentAssignmentId) continue; // skip already-assigned slots
+    let score = 0;
+    let reason = '';
+
+    if (s.type === 'agent_assignment') {
+      if (aaGoalId && s.goalId === aaGoalId) {
+        score += 100;
+        reason = 'allocated to this goal';
+      } else if (s.goalId) {
+        score += 10;
+        reason = 'allocated to a different goal';
+      } else {
+        score += 40;
+        reason = 'agent_assignment slot (no goal)';
+      }
+    } else {
+      score += 50;
+      reason = 'open flex slot';
+    }
+
+    const daysFromToday = Math.max(0, isoDaysBetween(todayISO, s.date));
+    score -= daysFromToday * 2;
+    if (s.date < todayISO) {
+      score -= 200; // strongly deprioritize past slots
+      reason += ' (past)';
+    }
+
+    candidates.push({
+      slotId: s.id,
+      datetime: s.datetime,
+      date: s.date,
+      time: s.time,
+      type: s.type as 'agent_assignment' | 'flex',
+      goalId: s.goalId,
+      score,
+      reason,
+    });
+  }
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.datetime.localeCompare(b.datetime);
+  });
+
+  return candidates.slice(0, limit);
+}
+
+function isoDaysBetween(fromISO: string, toISO: string): number {
+  const a = Date.parse(`${fromISO}T00:00:00Z`);
+  const b = Date.parse(`${toISO}T00:00:00Z`);
+  return Math.round((b - a) / 86_400_000);
+}
+
+// ---------------------------------------------------------------------------
 // Slot runner support
 // ---------------------------------------------------------------------------
 

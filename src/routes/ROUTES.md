@@ -202,6 +202,7 @@ Week plan generation, slot queries, and slot lifecycle management.
 | `POST` | `/api/schedule/slots/:id/done` | Mark slot done | `{ note? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/slots/:id/skip` | Skip slot | `{ reason? }` | `ScheduleSlot` |
 | `POST` | `/api/schedule/assign` | Assign an agent assignment to a slot | `{ agentAssignmentId, slotId }` | `ScheduleSlot` |
+| `GET` | `/api/schedule/suggest` | Ranked candidate slots for placing an agent assignment (read-only) | `?agentAssignmentId=...&weekStart=YYYY-MM-DD&limit=N` (`agentAssignmentId` required, `weekStart` defaults to current week, `limit` defaults to 5) | `SlotSuggestion[]` |
 | `DELETE` | `/api/schedule/slots/:id/assignment` | Unassign the agent assignment from a slot | — | `ScheduleSlot` |
 | `POST` | `/api/schedule/slots/:id/outputs` | Add an output artifact to a slot | `{ label, url? }` | `201 SlotOutput` |
 | `DELETE` | `/api/schedule/slots/:slotId/outputs/:outputId` | Remove a slot output | — | `204` |

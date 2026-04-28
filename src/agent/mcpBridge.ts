@@ -232,7 +232,7 @@ export const TOOLS = [
   {
     name: 'schedule',
     description:
-      'Manage the weekly schedule. Actions: today, week, generate, assign, unassign, done, skip, update, add_output, delete_output.',
+      'Manage the weekly schedule. Actions: today, week, generate, assign, unassign, done, skip, update, add_output, delete_output, suggest. `suggest` returns a ranked list of candidate slots for an agent assignment (read-only); pair with `assign` once the user picks one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -241,17 +241,22 @@ export const TOOLS = [
           enum: [
             'today', 'week', 'generate', 'assign', 'unassign',
             'done', 'skip', 'update', 'add_output', 'delete_output',
+            'suggest',
           ],
           description: 'Operation to perform.',
         },
         slotId: { type: 'string', description: 'Slot ID (required for most mutating actions).' },
         agentAssignmentId: {
           type: 'string',
-          description: 'Agent assignment ID (assign action, or null to clear in update).',
+          description: 'Agent assignment ID (assign/suggest action, or null to clear in update).',
         },
         weekStart: {
           type: 'string',
-          description: 'Date in target week, YYYY-MM-DD (week/generate actions; defaults to current week).',
+          description: 'Date in target week, YYYY-MM-DD (week/generate/suggest actions; defaults to current week).',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max candidates to return (suggest action; defaults to 5).',
         },
         status: {
           type: 'string',
@@ -918,6 +923,12 @@ async function dispatchSchedule(action: string, args: Args): Promise<unknown> {
         requireArg<string>(args, 'outputId'),
       );
       return { deleted: true };
+    case 'suggest':
+      return scheduleService.suggestSlotsForAssignment(
+        requireArg<string>(args, 'agentAssignmentId'),
+        optArg<string>(args, 'weekStart'),
+        optArg<number>(args, 'limit'),
+      );
     default:
       throw new AppError(400, `Unknown schedule action: ${action}`);
   }
