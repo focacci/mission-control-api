@@ -143,6 +143,8 @@
   - [`drainParts`](#drainpartsinvocationid)
 - [Attachments Service](#attachments-service)
   - [`saveAttachment`](#saveattachmentinput)
+- [Cards Service](#cards-service)
+  - [`hydrateCards`](#hydratecardsrefs)
 
 ---
 
@@ -1231,3 +1233,24 @@ saveAttachment(input: {
 ```
 
 Writes the decoded payload to `WORKSPACE_PATH/attachments/<sessionId>/<id>-<sanitizedName>` (extension appended from the mime type if missing) and returns a `workspace://attachments/...` URL the iOS client resolves through the existing workspace mount. Throws `AppError(400)` for missing or undecodable `data`.
+
+---
+
+## Cards Service
+
+Bulk hydration for the `card` parts emitted into a chat turn. See [`cards.service.ts`](cards.service.ts). Backs `POST /api/cards/hydrate` and is intentionally a thin fan-out — most kinds are a single `inArray` query against the entity table; `slot` and `schedule_day` enrich with their assignment + outputs to match the existing schedule reads.
+
+### `hydrateCards(refs)`
+
+```ts
+hydrateCards(refs: { cardType: CardKind; entityId: string }[]): Promise<{
+  task?: Task[];
+  goal?: Goal[];
+  initiative?: Initiative[];
+  agent_assignment?: AgentAssignment[];
+  slot?: (Slot & { agentAssignment, outputs })[];
+  schedule_day?: { date: string; slots: Slot[] }[];
+}>
+```
+
+Groups refs by `cardType`, dedupes ids per kind, and fans out one query per kind in parallel. For `schedule_day` the `entityId` is an ISO date string; the bucket entry is `{ date, slots }` with all slots for that date sorted by `datetime`. Unknown ids are silently dropped (renderer falls back). Empty input returns `{}`; kinds with no refs are omitted entirely from the response.

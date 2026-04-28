@@ -23,6 +23,8 @@
 - [Pinned Contexts](#pinned-contexts)
 - [Context Groups](#context-groups)
 - [Briefings](#briefings)
+- [Cards](#cards)
+- [Workspace](#workspace)
 - [Error Handling](#error-handling)
 
 ---
@@ -265,7 +267,7 @@ Two entry points for user-initiated chat turns: a buffered JSON endpoint and an 
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
-| `POST` | `/api/chat` | Send a message to an agent (buffered) | `{ message, agentId?, context?, sessionId? }` | `{ reply, sessionId, agentId, invocationId }` |
+| `POST` | `/api/chat` | Send a message to an agent (buffered) | `{ message, agentId?, context?, sessionId? }` | `{ reply, parts, sessionId, agentId, invocationId }` |
 | `POST` | `/api/chat/stream` | Send a message and stream events as SSE | `{ message, agentId?, context?, sessionId? }` | `text/event-stream` of `AgentEvent` frames |
 
 **Notes:**
@@ -273,6 +275,7 @@ Two entry points for user-initiated chat turns: a buffered JSON endpoint and an 
 - `context` is an optional view header (`{ type, id?, name?, emoji?, section?, date? }`) that is serialized into the user message so the agent knows what the user is looking at.
 - `sessionId` (if provided and it exists) reuses the session; otherwise the orchestrator resolves one by `(agentId, context.type, context.id)` or creates a new one.
 - For `/api/chat`: `reply` is the concatenation of every assistant `chat_messages` row written during the turn (joined with blank lines), so multi-cycle tool-use turns come back as a single text blob. Rich per-cycle structure is available via `GET /api/invocations/:id`.
+- `parts` is the concatenation of every assistant message's `parts: MessagePart[]` in turn order — this is the structured render payload (cards, quick replies, navigate rows, attachments). `reply` is preserved for back-compat as a plain-text fallback.
 - Fatal runner errors on the buffered endpoint surface as HTTP failures: `503` for `gateway_unreachable` / `transport`, `429` for `daily_cap_exceeded`, `504` for `timeout`, `499` for `cancelled`, `500` otherwise. The error `details` payload includes the runner `code` and the `invocationId` so callers can correlate.
 
 ### `POST /api/chat/stream` — SSE contract
@@ -423,6 +426,41 @@ Morning / afternoon / evening briefings per day. At most one brief per `(date, k
 - `references` is a JSON-encoded string: `{tasks: string[], slots: string[], initiatives: string[]}`.
 - `POST /generate` currently returns `501` with a clear message. Once Track C lands it will enqueue an agent run and return `202 { briefId, invocationId }` — consumers already holding the id can poll `GET /api/briefs/:id`.
 - `PATCH` accepts `title: null` / `body: null` / `references: null` to explicitly clear those fields.
+
+---
+
+## Cards
+
+Bulk hydration for `card` parts emitted into a chat turn's `parts[]`. iOS posts the `(cardType, entityId)` tuples it sees in the buffered chat response; the server returns one bucket per kind so the renderer can fill an `EntityCache` in a single round-trip rather than fanning out to `/api/tasks/:id`, `/api/goals/:id`, etc.
+
+| Method | Path | Description | Body | Response |
+|--------|------|-------------|------|----------|
+| `POST` | `/api/cards/hydrate` | Bulk-hydrate a list of card refs | `{ cards: { cardType, entityId }[] }` | `{ task?: Task[], goal?: Goal[], initiative?: Initiative[], agent_assignment?: AgentAssignment[], slot?: Slot[], schedule_day?: { date, slots }[] }` |
+
+**Notes:**
+- `cardType` is one of `task \| goal \| initiative \| agent_assignment \| slot \| schedule_day` (the `CARD_KINDS` enum).
+- For `schedule_day`, `entityId` is an ISO date (`YYYY-MM-DD`); the bucket entry is `{ date, slots }` with all slots for that day sorted by `datetime`.
+- `slot` rows are returned with their `agentAssignment` and `outputs` enriched (mirrors `enrichSlotsWithAssignments`).
+- Unknown ids are silently dropped — the iOS renderer falls back to a placeholder card.
+- Body is capped at 200 cards per request; a turn realistically carries fewer than 10.
+- Each kind's bucket is omitted entirely when no ids of that kind were requested.
+
+---
+
+## Workspace
+
+Static-serving for files written by the `attach` MCP tool. The tool persists base64 payloads under `WORKSPACE_PATH/attachments/<sessionId>/` and emits `workspace://attachments/<sessionId>/<file>` URLs in `attachment` parts; iOS rewrites those URLs to this endpoint to fetch the bytes.
+
+| Method | Path | Description | Response |
+|--------|------|-------------|----------|
+| `GET` | `/api/workspace/attachments/:sessionId/:filename` | Stream a saved attachment | binary file body |
+
+**Notes:**
+- `Content-Type` is inferred from the filename extension (`png`, `jpg`, `pdf`, `txt`, `md`, `json`, ...) and falls back to `application/octet-stream`.
+- Path traversal is rejected: any `/`, `\`, `..`, leading `.`, or NUL byte in the filename returns `400`.
+- Returns `404` if the session does not exist or the file is missing.
+- Auth: full agent-owns-session enforcement is gated on the Phase 2 slice 9 auth middleware. Until then the route only confirms the session exists, which rejects probes for unknown ids.
+- `Cache-Control: private, max-age=3600`.
 
 ---
 

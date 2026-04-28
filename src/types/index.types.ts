@@ -431,6 +431,18 @@ export function textToParts(content: string): MessagePart[] {
   return [{ kind: 'text', text: content }];
 }
 
+// Cards — bulk hydration of `card` parts emitted in a chat turn.
+export const HydrateCardsSchema = z.object({
+  cards: z
+    .array(
+      z.object({
+        cardType: z.enum(CARD_KINDS),
+        entityId: z.string().min(1),
+      }),
+    )
+    .max(200),
+});
+
 // Conversations
 export const CreateSessionSchema = z.object({
   agentId: z.string().min(1),
@@ -565,6 +577,7 @@ export type CreateAgentInput = z.infer<typeof CreateAgentSchema>;
 export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;
 export type ChatContextInput = z.infer<typeof ChatContextSchema>;
 export type ChatRequestInput = z.infer<typeof ChatRequestSchema>;
+export type HydrateCardsInput = z.infer<typeof HydrateCardsSchema>;
 export type CreateSessionInputZ = z.infer<typeof CreateSessionSchema>;
 export type ListSessionsQuery = z.infer<typeof ListSessionsQuerySchema>;
 export type ListMessagesQuery = z.infer<typeof ListMessagesQuerySchema>;

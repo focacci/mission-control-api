@@ -23,6 +23,7 @@ export async function chatRoutes(app: FastifyInstance) {
     });
     return {
       reply: result.reply,
+      parts: result.parts,
       sessionId: result.sessionId,
       agentId: result.agentId,
       invocationId: result.invocationId,

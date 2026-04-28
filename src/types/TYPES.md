@@ -725,6 +725,16 @@ Structured render schema persisted on `chat_messages.parts` (MCP_TOOLKIT_PLAN Bu
 
 `CardKind` covers `task | goal | initiative | agent_assignment | slot | schedule_day`. Helpers `partsToText(parts)` and `textToParts(content)` provide round-trips between `parts` and the legacy `chat_messages.content` column.
 
+#### `HydrateCardsSchema`
+
+```ts
+{
+  cards: { cardType: CardKind; entityId: string }[]   // max 200
+}
+```
+
+Body schema for `POST /api/cards/hydrate`. Each tuple matches the payload of a `card` part — bulk hydration replaces n round-trips to per-kind GETs with a single response keyed by `cardType`.
+
 ---
 
 ## Constants (Phase 1)
@@ -803,6 +813,7 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `UpdateAgentInput` | `UpdateAgentSchema` |
 | `ChatContextInput` | `ChatContextSchema` |
 | `ChatRequestInput` | `ChatRequestSchema` |
+| `HydrateCardsInput` | `HydrateCardsSchema` |
 | `CreateSessionInputZ` | `CreateSessionSchema` |
 | `ListSessionsQuery` | `ListSessionsQuerySchema` |
 | `ListMessagesQuery` | `ListMessagesQuerySchema` |

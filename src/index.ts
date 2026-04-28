@@ -19,6 +19,8 @@ import { invocationsRoutes } from './routes/invocations.routes.js';
 import { profileRoutes } from './routes/profile.routes.js';
 import { contextGroupsRoutes } from './routes/contextGroups.routes.js';
 import { briefsRoutes } from './routes/briefs.routes.js';
+import { cardsRoutes } from './routes/cards.routes.js';
+import { workspaceRoutes } from './routes/workspace.routes.js';
 import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
 import { initGatewayClient, loadOrCreateDeviceIdentity } from './agent/gatewayClient.js';
@@ -110,6 +112,8 @@ await app.register(agentsRoutes);
 await app.register(profileRoutes);
 await app.register(contextGroupsRoutes);
 await app.register(briefsRoutes);
+await app.register(cardsRoutes);
+await app.register(workspaceRoutes);
 
 // ---------------------------------------------------------------------------
 // Slot ticker — fires due slots every 60s

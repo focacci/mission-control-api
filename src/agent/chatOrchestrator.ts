@@ -9,7 +9,7 @@ import {
   startInvocation,
   type AgentInvocation,
 } from '../services/invocations.service.js';
-import { AppError } from '../types/index.types.js';
+import { AppError, type MessagePart } from '../types/index.types.js';
 import type { AgentEvent, AgentEventErrorCode } from './events.js';
 import { run, type RunnerOptions } from './runner.js';
 
@@ -155,6 +155,7 @@ export async function handleChatTurn(
 
 export interface BufferedChatTurnResult extends HandleChatTurnResult {
   reply: string;
+  parts: MessagePart[];
 }
 
 const ERROR_CODE_STATUS: Record<AgentEventErrorCode, number> = {
@@ -201,14 +202,16 @@ export async function runBufferedChatTurn(
   }
 
   const detail = await getInvocation(turn.invocationId);
-  const reply = detail.messages
-    .filter((m) => m.role === 'assistant')
+  const assistantMessages = detail.messages.filter((m) => m.role === 'assistant');
+  const reply = assistantMessages
     .map((m) => m.content ?? '')
     .join('\n\n')
     .trim();
+  const parts: MessagePart[] = assistantMessages.flatMap((m) => m.parts);
 
   return {
     ...turn,
     reply: reply || 'No response from agent.',
+    parts,
   };
 }
