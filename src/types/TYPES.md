@@ -34,6 +34,7 @@
   - [Profile Schemas](#profile-schemas)
   - [Context Group Schemas](#context-group-schemas)
   - [Brief Schemas](#brief-schemas)
+  - [Message Part Schemas](#message-part-schemas)
 - [Constants (Phase 1)](#constants-phase-1)
 - [Inferred TypeScript Types](#inferred-typescript-types)
 
@@ -703,6 +704,26 @@ Body for `POST /api/briefs/generate`.
 ```
 
 Body for `PATCH /api/briefs/:id`. Passing `null` explicitly clears the nullable fields.
+
+### Message Part Schemas
+
+Structured render schema persisted on `chat_messages.parts` (MCP_TOOLKIT_PLAN Bucket 2a). Every assistant or user turn is a list of parts; the iOS client switches on `kind` to pick a renderer. Bucket 2b interface tools (`render_card`, `prompt_user`, `navigate`, `attach`, …) emit additional parts onto the in-flight assistant message.
+
+`MessagePartSchema` is a discriminated union (`kind`) of:
+
+```ts
+{ kind: 'text';            text: string }
+{ kind: 'card';            cardType: CardKind; entityId: string }
+{ kind: 'prompt';          promptType: 'confirm' | 'choice'; question: string;
+                            promptId: string; choices?: { id; label; emoji? }[] }
+{ kind: 'prompt_reply';    promptId: string; choiceId: string }
+{ kind: 'quick_replies';   suggestions: { id: string; label: string }[] }
+{ kind: 'navigate';        route: string; label: string }
+{ kind: 'attachment';      mimeType: string; name: string; url: string; size?: number }
+{ kind: 'live_activity_ref'; activityId: string; title: string }
+```
+
+`CardKind` covers `task | goal | initiative | agent_assignment | slot | schedule_day`. Helpers `partsToText(parts)` and `textToParts(content)` provide round-trips between `parts` and the legacy `chat_messages.content` column.
 
 ---
 

@@ -2,10 +2,31 @@ import { and, asc, desc, eq, lt, sql, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import { chatMessages, chatSessions, toolCallLog } from '../db/schema.js';
-import { AppError, notFound, now } from '../types/index.types.js';
+import {
+  AppError,
+  MessagePartSchema,
+  notFound,
+  now,
+  partsToText,
+  textToParts,
+  type MessagePart,
+} from '../types/index.types.js';
+import { z } from 'zod';
 
 export type ChatSession = typeof chatSessions.$inferSelect;
-export type ChatMessage = typeof chatMessages.$inferSelect;
+type ChatMessageRow = typeof chatMessages.$inferSelect;
+/** Like the raw row, but `parts` is always populated — the legacy `content`
+ *  column is retained for one release as a read-only fallback (see Bucket 2a). */
+export type ChatMessage = ChatMessageRow & { parts: MessagePart[] };
+
+const PartsArraySchema = z.array(MessagePartSchema).min(1);
+
+function normalizeRow(row: ChatMessageRow): ChatMessage {
+  if (Array.isArray(row.parts) && row.parts.length > 0) {
+    return { ...row, parts: row.parts as MessagePart[] };
+  }
+  return { ...row, parts: textToParts(row.content) };
+}
 
 export interface CreateSessionInput {
   agentId: string;
@@ -20,11 +41,20 @@ export interface FindOrCreateSessionInput {
   contextId: string | null;
 }
 
+/**
+ * Append-message payload. Callers may supply `parts` (preferred), `content`
+ * (legacy plain text), or both. The service normalizes:
+ *   - `parts` only: `content` derived via `partsToText(parts)`.
+ *   - `content` only: `parts = [{ kind: 'text', text: content }]`.
+ *   - both: caller is trusted; both are persisted as-given.
+ * Exactly one of the two must be present.
+ */
 export interface AppendMessageInput {
   sessionId: string;
   invocationId?: string | null;
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content?: string;
+  parts?: MessagePart[];
 }
 
 export interface ListMessagesOpts {
@@ -177,6 +207,14 @@ export async function appendMessage(input: AppendMessageInput): Promise<ChatMess
     .where(eq(chatSessions.id, input.sessionId));
   if (!session) throw notFound('ChatSession', input.sessionId);
 
+  if (input.parts === undefined && input.content === undefined) {
+    throw new AppError(400, 'appendMessage requires `parts` or `content`.');
+  }
+  const parts: MessagePart[] = input.parts
+    ? PartsArraySchema.parse(input.parts)
+    : textToParts(input.content!);
+  const content = input.content ?? partsToText(parts);
+
   const [{ maxOrder }] = await db
     .select({ maxOrder: sql<number | null>`MAX(${chatMessages.sortOrder})` })
     .from(chatMessages)
@@ -190,7 +228,8 @@ export async function appendMessage(input: AppendMessageInput): Promise<ChatMess
     sessionId: input.sessionId,
     invocationId: input.invocationId ?? null,
     role: input.role,
-    content: input.content,
+    content,
+    parts,
     sortOrder: nextOrder,
     createdAt: timestamp,
   };
@@ -202,7 +241,7 @@ export async function appendMessage(input: AppendMessageInput): Promise<ChatMess
       !session.title && input.role === 'user' && nextOrder === 0;
     const updates: Partial<ChatSession> = { lastMessageAt: timestamp };
     if (shouldSetTitle) {
-      updates.title = input.content.slice(0, 80);
+      updates.title = content.slice(0, 80);
     }
     tx.update(chatSessions).set(updates).where(eq(chatSessions.id, input.sessionId)).run();
   });
@@ -226,12 +265,13 @@ export async function listMessages(
 
   const limit = opts.limit ?? 100;
 
-  return db
+  const rows = await db
     .select()
     .from(chatMessages)
     .where(and(...conditions))
     .orderBy(asc(chatMessages.sortOrder))
     .limit(limit);
+  return rows.map(normalizeRow);
 }
 
 export async function getMessageCount(sessionId: string): Promise<number> {

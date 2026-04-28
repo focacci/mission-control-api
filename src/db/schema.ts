@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import type { MessagePart } from '../types/index.types.js';
 
 export const goals = sqliteTable('goals', {
   id: text('id').primaryKey(),
@@ -213,7 +214,10 @@ export const chatMessages = sqliteTable('chat_messages', {
     .references(() => chatSessions.id, { onDelete: 'cascade' }),
   invocationId: text('invocation_id'),
   role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+  // Plain-text fallback retained for one release per MCP_TOOLKIT_PLAN Bucket 2a;
+  // `parts` is the structured source of truth that newer clients render.
   content: text('content').notNull(),
+  parts: text('parts', { mode: 'json' }).$type<MessagePart[]>(),
   sortOrder: integer('sort_order').notNull(),
   createdAt: text('created_at').notNull(),
 });

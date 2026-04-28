@@ -57,6 +57,13 @@
       "when": 1777598400002,
       "tag": "0007_slim_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1777342127984,
+      "tag": "0008_chat_message_parts",
+      "breakpoints": true
     }
   ]
 }

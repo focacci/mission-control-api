@@ -320,6 +320,117 @@ export const ChatRequestSchema = z.object({
   sessionId: z.string().optional(),
 });
 
+// Message parts — structured render schema for chat_messages.parts
+// (MCP_TOOLKIT_PLAN Bucket 2a). Each assistant or user turn is a list of parts;
+// the iOS client switches on `kind` to pick a renderer. Bucket 2b interface
+// tools (render_card, prompt_user, navigate, attach, ...) emit additional
+// parts onto the in-flight assistant message.
+export const CARD_KINDS = [
+  'task',
+  'goal',
+  'initiative',
+  'agent_assignment',
+  'slot',
+  'schedule_day',
+] as const;
+export type CardKind = (typeof CARD_KINDS)[number];
+
+export const PROMPT_KINDS = ['confirm', 'choice'] as const;
+export type PromptKind = (typeof PROMPT_KINDS)[number];
+
+export const TextPartSchema = z.object({
+  kind: z.literal('text'),
+  text: z.string(),
+});
+
+export const CardPartSchema = z.object({
+  kind: z.literal('card'),
+  cardType: z.enum(CARD_KINDS),
+  entityId: z.string().min(1),
+});
+
+export const PromptPartSchema = z.object({
+  kind: z.literal('prompt'),
+  promptType: z.enum(PROMPT_KINDS),
+  question: z.string().min(1),
+  promptId: z.string().min(1),
+  choices: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        emoji: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+export const PromptReplyPartSchema = z.object({
+  kind: z.literal('prompt_reply'),
+  promptId: z.string().min(1),
+  choiceId: z.string().min(1),
+});
+
+export const QuickRepliesPartSchema = z.object({
+  kind: z.literal('quick_replies'),
+  suggestions: z.array(
+    z.object({ id: z.string().min(1), label: z.string().min(1) }),
+  ),
+});
+
+export const NavigatePartSchema = z.object({
+  kind: z.literal('navigate'),
+  route: z.string().min(1),
+  label: z.string().min(1),
+});
+
+export const AttachmentPartSchema = z.object({
+  kind: z.literal('attachment'),
+  mimeType: z.string().min(1),
+  name: z.string().min(1),
+  url: z.string().min(1),
+  size: z.number().int().nonnegative().optional(),
+});
+
+export const LiveActivityRefPartSchema = z.object({
+  kind: z.literal('live_activity_ref'),
+  activityId: z.string().min(1),
+  title: z.string().min(1),
+});
+
+export const MessagePartSchema = z.discriminatedUnion('kind', [
+  TextPartSchema,
+  CardPartSchema,
+  PromptPartSchema,
+  PromptReplyPartSchema,
+  QuickRepliesPartSchema,
+  NavigatePartSchema,
+  AttachmentPartSchema,
+  LiveActivityRefPartSchema,
+]);
+
+export type MessagePart = z.infer<typeof MessagePartSchema>;
+export type TextPart = z.infer<typeof TextPartSchema>;
+
+/** Concatenate every text-bearing part into a flat string. Used to derive the
+ *  legacy `chat_messages.content` column from a `parts[]` payload, and to give
+ *  pre-parts callers a stable string to log or display. */
+export function partsToText(parts: MessagePart[]): string {
+  const out: string[] = [];
+  for (const p of parts) {
+    if (p.kind === 'text') out.push(p.text);
+    else if (p.kind === 'navigate') out.push(p.label);
+    else if (p.kind === 'prompt') out.push(p.question);
+  }
+  return out.join('\n').trim();
+}
+
+/** Wrap a plain-text body as a single-element parts list — the canonical
+ *  fallback for legacy callers and for backfilling rows that pre-date Bucket 2a. */
+export function textToParts(content: string): MessagePart[] {
+  return [{ kind: 'text', text: content }];
+}
+
 // Conversations
 export const CreateSessionSchema = z.object({
   agentId: z.string().min(1),

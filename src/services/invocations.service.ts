@@ -7,7 +7,8 @@ import {
   toolCallLog,
 } from '../db/schema.js';
 import { GatewayRequestError, getGatewayClient } from '../agent/gatewayClient.js';
-import { AppError, notFound, now } from '../types/index.types.js';
+import { AppError, notFound, now, textToParts, type MessagePart } from '../types/index.types.js';
+import type { ChatMessage } from './conversations.service.js';
 
 export type AgentInvocation = typeof agentInvocations.$inferSelect;
 
@@ -152,7 +153,7 @@ export async function listInvocations(
 
 export interface InvocationDetail {
   invocation: AgentInvocation;
-  messages: (typeof chatMessages.$inferSelect)[];
+  messages: ChatMessage[];
   toolCalls: (typeof toolCallLog.$inferSelect)[];
 }
 
@@ -163,11 +164,18 @@ export async function getInvocation(id: string): Promise<InvocationDetail> {
     .where(eq(agentInvocations.id, id));
   if (!invocation) throw notFound('AgentInvocation', id);
 
-  const messages = await db
+  const rawMessages = await db
     .select()
     .from(chatMessages)
     .where(eq(chatMessages.invocationId, id))
     .orderBy(asc(chatMessages.sortOrder));
+  const messages: ChatMessage[] = rawMessages.map(row => ({
+    ...row,
+    parts:
+      Array.isArray(row.parts) && row.parts.length > 0
+        ? (row.parts as MessagePart[])
+        : textToParts(row.content),
+  }));
 
   const toolCalls = await db
     .select()

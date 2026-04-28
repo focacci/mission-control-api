@@ -316,7 +316,7 @@ Read and manage persisted chat sessions and their transcripts. All reads are ser
 | `GET` | `/api/chat/sessions` | List sessions | `?agentId=&contextType=&contextId=&limit=` | `ChatSession[]` (most recent first, default 50) |
 | `POST` | `/api/chat/sessions` | Explicitly create a fresh session (bypasses the find-or-create dedup used by `/api/chat`) | `{ agentId, contextType?, contextId?, title? }` | `201 ChatSession` |
 | `GET` | `/api/chat/sessions/:id` | Get session metadata + message count | — | `ChatSession & { messageCount: number }` |
-| `GET` | `/api/chat/sessions/:id/messages` | Paginated transcript | `?limit=&before=<messageId>` | `ChatMessage[]` (sortOrder ascending) |
+| `GET` | `/api/chat/sessions/:id/messages` | Paginated transcript | `?limit=&before=<messageId>` | `ChatMessage[]` (sortOrder ascending; each row carries a structured `parts: MessagePart[]` plus the legacy `content` string) |
 | `DELETE` | `/api/chat/sessions/:id` | Hard delete session (cascades messages + tool calls) | — | `204` |
 
 **Notes:**

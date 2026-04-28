@@ -285,7 +285,8 @@ Ordered turns within a session. Assistant messages link back to the `agent_invoc
 | `session_id` | `text` FK → `chat_sessions.id` | `ON DELETE CASCADE` |
 | `invocation_id` | `text` nullable | `agent_invocations.id` for assistant turns; null for user turns |
 | `role` | `text` enum | `user` \| `assistant` \| `system` |
-| `content` | `text` | final rendered text — partial stream deltas are not persisted |
+| `content` | `text` | flat text projection — derived from `parts` for back-compat. Retained one release as a read-only fallback (MCP_TOOLKIT_PLAN Bucket 2a). |
+| `parts` | `text` JSON nullable | structured `MessagePart[]` payload — the rendering source of truth for the iOS client. Null on legacy rows that pre-date the migration; readers fall back to `content` wrapped as a single `{kind:'text'}` part. |
 | `sort_order` | `integer` | monotonic per-session (starts at 0) |
 | `created_at` | `text` | ISO timestamp |
 

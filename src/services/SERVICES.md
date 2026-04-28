@@ -840,11 +840,20 @@ appendMessage(input: {
   sessionId: string;
   invocationId?: string | null;
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content?: string;
+  parts?: MessagePart[];
 }): Promise<ChatMessage>
 ```
 
-Auto-increments `sortOrder` (computed from `MAX(sort_order) + 1`), updates the parent session's `lastMessageAt`, and — if this is the first user message on a session without a title — derives the title as the first 80 characters of `content`. Wraps the insert and session update in a transaction. Throws `notFound` if the session doesn't exist.
+Persists a `chat_messages` row plus the structured `parts` payload introduced by MCP_TOOLKIT_PLAN Bucket 2a. Callers may supply `parts` (preferred), `content` (legacy plain text), or both — exactly one must be present. The service normalizes:
+
+- `parts` only → `content` is derived via `partsToText(parts)` for the legacy column.
+- `content` only → `parts = [{ kind: 'text', text: content }]`.
+- both → trusted as-given and persisted unchanged.
+
+`parts` is validated with the discriminated `MessagePartSchema` before write. Auto-increments `sortOrder` (computed from `MAX(sort_order) + 1`), updates the parent session's `lastMessageAt`, and — if this is the first user message on a session without a title — derives the title as the first 80 characters of the resolved `content`. Wraps the insert and session update in a transaction. Throws `notFound` if the session doesn't exist; throws `AppError(400)` if both `parts` and `content` are absent.
+
+The returned `ChatMessage` always carries a non-null `parts` array (the legacy column is preserved on the row but normalization fills `parts` for new readers).
 
 ### `listMessages(sessionId, opts)`
 
@@ -852,7 +861,7 @@ Auto-increments `sortOrder` (computed from `MAX(sort_order) + 1`), updates the p
 listMessages(sessionId: string, opts?: { limit?: number; before?: string }): Promise<ChatMessage[]>
 ```
 
-Returns messages in `sortOrder` ascending. `before` is a message id used for reverse-chronological pagination (returns messages with a lower `sortOrder` than the anchor). Default limit 100, max 500.
+Returns messages in `sortOrder` ascending, with `parts` always populated — rows that pre-date Bucket 2a have `parts` synthesized as `[{ kind: 'text', text: content }]`. `before` is a message id used for reverse-chronological pagination (returns messages with a lower `sortOrder` than the anchor). Default limit 100, max 500.
 
 ### `getMessageCount(sessionId)`
 
