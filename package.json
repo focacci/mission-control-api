@@ -11,7 +11,8 @@
     "migrate": "drizzle-kit migrate",
     "generate": "drizzle-kit generate",
     "seed": "tsx src/db/seed.ts",
-    "mcp": "tsx src/mcp/index.ts"
+    "mcp": "tsx src/mcp/index.ts",
+    "smoke:schedule-suggest": "tsx scripts/schedule-suggest-smoke.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10",
