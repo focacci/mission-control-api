@@ -6,6 +6,11 @@ import {
 } from '../types/index.types.js';
 
 export async function agentAssignmentsRoutes(app: FastifyInstance) {
+  // GET /api/agent-assignments — aggregate list across all parents, newest first
+  app.get('/api/agent-assignments', async () => {
+    return aaService.listAllAgentAssignments();
+  });
+
   // GET /api/tasks/:taskId/agent-assignments
   app.get('/api/tasks/:taskId/agent-assignments', async request => {
     const { taskId } = request.params as { taskId: string };

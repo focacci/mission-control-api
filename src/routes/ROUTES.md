@@ -147,6 +147,7 @@ Chunks of work delegated to an agent. They're the unit that gets scheduled into 
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
+| `GET` | `/api/agent-assignments` | Aggregate list of every assignment across all parents, newest first by `updatedAt` | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
 | `GET` | `/api/goals/:goalId/agent-assignments` | List assignments attached to a goal | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
 | `POST` | `/api/goals/:goalId/agent-assignments` | Create a goal-level assignment | `{ title, description?, agentId? }` | `201 AgentAssignment` |
 | `GET` | `/api/initiatives/:initiativeId/agent-assignments` | List assignments attached to an initiative | — | `(AgentAssignment & { slots: ScheduleSlot[] })[]` |
@@ -174,6 +175,7 @@ Structured record of one autonomous run of an Agent Assignment — the input, or
 
 | Method | Path | Description | Body | Response |
 |--------|------|-------------|------|----------|
+| `GET` | `/api/agent-outputs` | Aggregate list of every output across all assignments, newest first by `startedAt` | — | `AgentOutput[]` |
 | `GET` | `/api/agent-assignments/:id/outputs` | List outputs for an assignment, newest first | — | `AgentOutput[]` |
 | `POST` | `/api/agent-assignments/:id/outputs` | Open a new running output | `{ input, agentId?, model? }` | `201 AgentOutput` |
 | `GET` | `/api/agent-outputs/:id` | Get one output with its ordered steps | — | `{ output: AgentOutput, steps: AgentOutputStep[] }` |

@@ -35,6 +35,7 @@
   - [`deleteRequirementTest`](#deleterequirementtestreqid-testid)
 - [Agent Assignments Service](#agent-assignments-service)
   - [`listAgentAssignmentsForParent`](#listagentassignmentsforparentkind-parentid)
+  - [`listAllAgentAssignments`](#listallagentassignments)
   - [`getAgentAssignment`](#getagentassignmentid)
   - [`createAgentAssignmentForParent`](#createagentassignmentforparentkind-parentid-input)
   - [`resolveGoalIdsForAssignments`](#resolvegoalidsforassignmentsaaids)
@@ -52,6 +53,7 @@
   - [`completeAgentOutput`](#completeagentoutputoutputid-input)
   - [`failAgentOutput`](#failagentoutputoutputid-input)
   - [`listAgentOutputsForAssignment`](#listagentoutputsforassignmentagentassignmentid)
+  - [`listAllAgentOutputs`](#listallagentoutputs)
   - [`getAgentOutput`](#getagentoutputoutputid)
   - [`deleteAgentOutput`](#deleteagentoutputoutputid)
 - [Schedule Service](#schedule-service)
@@ -383,6 +385,14 @@ Returns all assignments under a given parent, sorted by `sortOrder`. Each assign
 
 `listAgentAssignmentsForTask`, `listAgentAssignmentsForGoal`, and `listAgentAssignmentsForInitiative` are thin wrappers that pass the right `kind`.
 
+### `listAllAgentAssignments()`
+
+```ts
+listAllAgentAssignments(): Promise<(AgentAssignment & { slots: ScheduleSlot[] })[]>
+```
+
+Returns every agent assignment across all parents, sorted newest first by `updatedAt`. Each row is enriched with its scheduled slots using the same bulk slot lookup as `listAgentAssignmentsForParent`.
+
 ### `getAgentAssignment(id)`
 
 ```ts
@@ -532,6 +542,14 @@ listAgentOutputsForAssignment(agentAssignmentId: string): Promise<AgentOutput[]>
 ```
 
 Returns header rows for the assignment ordered by `startedAt` desc. No steps included. Throws 404 if the assignment doesn't exist.
+
+### `listAllAgentOutputs()`
+
+```ts
+listAllAgentOutputs(): Promise<AgentOutput[]>
+```
+
+Returns header rows for every agent output across all assignments, ordered by `startedAt` desc. No steps included.
 
 ### `getAgentOutput(outputId)`
 

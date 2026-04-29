@@ -8,6 +8,11 @@ import {
 } from '../types/index.types.js';
 
 export async function agentOutputsRoutes(app: FastifyInstance) {
+  // GET /api/agent-outputs — aggregate list across all assignments, newest first
+  app.get('/api/agent-outputs', async () => {
+    return outputsService.listAllAgentOutputs();
+  });
+
   app.get('/api/agent-assignments/:id/outputs', async request => {
     const { id } = request.params as { id: string };
     return outputsService.listAgentOutputsForAssignment(id);

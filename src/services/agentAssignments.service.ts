@@ -1,4 +1,4 @@
-import { eq, asc, inArray, and, gt, isNull } from 'drizzle-orm';
+import { eq, asc, desc, inArray, and, gt, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import {
@@ -122,6 +122,50 @@ export const listAgentAssignmentsForGoal = (goalId: string) =>
   listAgentAssignmentsForParent('goal', goalId);
 export const listAgentAssignmentsForInitiative = (initiativeId: string) =>
   listAgentAssignmentsForParent('initiative', initiativeId);
+
+/**
+ * List every agent assignment across all parents, newest first by `updatedAt`.
+ * Each row is enriched with its scheduled slots, matching the shape returned
+ * by the per-parent list endpoints.
+ */
+export async function listAllAgentAssignments() {
+  const rows = await db
+    .select()
+    .from(agentAssignments)
+    .orderBy(desc(agentAssignments.updatedAt));
+
+  if (rows.length === 0) return [];
+
+  const ids = rows.map(r => r.id);
+  const allSlots = await db
+    .select({
+      id: scheduleSlots.id,
+      date: scheduleSlots.date,
+      time: scheduleSlots.time,
+      datetime: scheduleSlots.datetime,
+      dayOfWeek: scheduleSlots.dayOfWeek,
+      agentAssignmentId: scheduleSlots.agentAssignmentId,
+    })
+    .from(scheduleSlots)
+    .where(inArray(scheduleSlots.agentAssignmentId, ids))
+    .orderBy(asc(scheduleSlots.datetime));
+
+  const slotsByAA = new Map<string, Array<Omit<(typeof allSlots)[number], 'agentAssignmentId'>>>();
+  for (const s of allSlots) {
+    if (!s.agentAssignmentId) continue;
+    const arr = slotsByAA.get(s.agentAssignmentId) ?? [];
+    arr.push({
+      id: s.id,
+      date: s.date,
+      time: s.time,
+      datetime: s.datetime,
+      dayOfWeek: s.dayOfWeek,
+    });
+    slotsByAA.set(s.agentAssignmentId, arr);
+  }
+
+  return rows.map(r => ({ ...r, slots: slotsByAA.get(r.id) ?? [] }));
+}
 
 export async function getAgentAssignment(id: string) {
   return loadAgentAssignment(id);

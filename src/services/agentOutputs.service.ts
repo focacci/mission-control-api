@@ -175,6 +175,16 @@ export async function listAgentOutputsForAssignment(
     .orderBy(desc(agentOutputs.startedAt));
 }
 
+/**
+ * List every agent output across all assignments, newest first by `startedAt`.
+ */
+export async function listAllAgentOutputs(): Promise<AgentOutput[]> {
+  return db
+    .select()
+    .from(agentOutputs)
+    .orderBy(desc(agentOutputs.startedAt));
+}
+
 export async function getAgentOutput(outputId: string): Promise<AgentOutputDetail> {
   const output = await loadOutput(outputId);
   const steps = await db
