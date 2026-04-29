@@ -685,12 +685,13 @@ Query for `GET /api/briefs`. Both dates are required; service throws `400` if `f
 
 ```ts
 {
-  date: string (YYYY-MM-DD),
-  kind: 'morning' | 'afternoon' | 'evening',
+  briefId?: string,
+  date?:    string (YYYY-MM-DD),
+  kind?:    'morning' | 'afternoon' | 'evening',
 }
 ```
 
-Body for `POST /api/briefs/generate`.
+Body for `POST /api/briefs/generate`. Provide either `briefId` or both `date` and `kind`. Phase 2 ships without LLM synthesis, so this endpoint just freezes the brief at its current evidence with a deterministic fallback summary.
 
 #### `UpdateBriefSchema`
 
@@ -699,11 +700,77 @@ Body for `POST /api/briefs/generate`.
   title?:      string | null,
   body?:       string | null,
   references?: string | null,   // JSON blob
-  status?:     'pending' | 'generating' | 'ready' | 'error',
+  status?:     'pending' | 'drafting' | 'ready' | 'acknowledged' | 'error',
 }
 ```
 
 Body for `PATCH /api/briefs/:id`. Passing `null` explicitly clears the nullable fields.
+
+#### `BriefBodySchema` / `BriefReferencesSchema`
+
+```ts
+type BriefBody = {
+  summary: string;
+  sections: {
+    agentWork:           BriefAgentWorkItem[];
+    openQuestions:       BriefQuestionItem[];
+    userAccomplishments: BriefAccomplishmentItem[];
+    profileGaps:         BriefProfileGapItem[];
+    worldSignal:         BriefWorldSignalItem[];
+  };
+};
+
+type BriefReferences = {
+  agentOutputIds:    string[];
+  invocationIds:     string[];
+  taskIds:           string[];
+  requirementIds:    string[];
+  profileEntryIds:   string[];
+  profileSectionIds: string[];
+  slotIds:           string[];
+  chatMessageIds:    string[];
+  urls:              string[];
+  synthesisFailed?:  boolean;
+};
+```
+
+JSON shape for the `briefs.body` and `briefs.references` columns. `EMPTY_BRIEF_BODY` and `EMPTY_BRIEF_REFERENCES` constants provide initial values.
+
+#### `BriefEvidenceItemSchema`
+
+Discriminated union (`kind`) for items the agent or in-app hooks append to a draft brief:
+
+```ts
+{ kind: 'agent_work';      agentOutputId; agentAssignmentId?; agentId?; agentName?;
+                            agentEmoji?; title; oneLineSummary?; tokensIn; tokensOut;
+                            durationMs?; endedAt }
+{ kind: 'open_question';   questionId; prompt; source: 'agent_output'|'invocation'|'chat'|'manual';
+                            agentOutputId?; invocationId?; chatMessageId?; raisedAt }
+{ kind: 'accomplishment';  source: 'task'|'requirement'|'slot'|'status_strip'|'daily_note'|'chat';
+                            refId; title; detail?; occurredAt }
+{ kind: 'profile_gap';     profileSectionId; profileEntryId?; prompt; raisedAt }
+{ kind: 'world_signal';    provider; headline; detail?; url?; occurredAt }
+```
+
+#### `AppendBriefEvidenceSchema`
+
+```ts
+{ item: BriefEvidenceItem }
+```
+
+Body for `POST /api/briefs/:id/evidence`.
+
+#### `DailyRhythmEntryDetailSchema`
+
+```ts
+{
+  start:      string (HH:MM),
+  end:        string (HH:MM),
+  userActive: boolean,
+}
+```
+
+Stored as a JSON string in `profile_entries.detail` for entries under the `daily_rhythm` section. Read via `profile.service.getDailyRhythm()`.
 
 ### Message Part Schemas
 
@@ -774,10 +841,37 @@ Source of truth for the `briefs.kind` enum.
 ### `BRIEF_STATUSES`
 
 ```ts
-const BRIEF_STATUSES = ['pending', 'generating', 'ready', 'error'] as const;
+const BRIEF_STATUSES = ['pending', 'drafting', 'ready', 'acknowledged', 'error'] as const;
 ```
 
-Source of truth for the `briefs.status` enum.
+Source of truth for the `briefs.status` enum. Lifecycle: `pending → drafting → ready → acknowledged`; `error` set by the synthesis pipeline.
+
+### `BRIEF_REVEAL_TIMES`
+
+```ts
+const BRIEF_REVEAL_TIMES = {
+  morning:   '07:00',
+  afternoon: '12:30',
+  evening:   '19:00',
+} as const;
+```
+
+Reveal-time labels per the brief reveal table. Used by `briefs.service.computeBriefWindow` to seed `revealAt` / `windowStart` / `windowEnd` on stub creation.
+
+### `DAILY_RHYTHM_SECTION_ID` / `DAILY_RHYTHM_PHASES` / `DEFAULT_DAILY_RHYTHM`
+
+```ts
+const DAILY_RHYTHM_SECTION_ID = 'daily_rhythm';
+const DAILY_RHYTHM_PHASES = ['morning', 'afternoon', 'evening', 'overnight'] as const;
+const DEFAULT_DAILY_RHYTHM = {
+  morning:   { start: '04:30', end: '12:30', userActive: true  },
+  afternoon: { start: '12:30', end: '17:00', userActive: true  },
+  evening:   { start: '17:00', end: '21:00', userActive: true  },
+  overnight: { start: '21:00', end: '04:30', userActive: false },
+};
+```
+
+Defaults seeded by `profile.service.ensureDailyRhythmSeeded()`. Used as the fallback for any phase that's missing or has malformed JSON when reading via `getDailyRhythm()`.
 
 ---
 
@@ -828,3 +922,16 @@ These are derived from the Zod schemas via `z.infer<>` and used as function para
 | `ListBriefsQuery` | `ListBriefsQuerySchema` |
 | `GenerateBriefInput` | `GenerateBriefSchema` |
 | `UpdateBriefInput` | `UpdateBriefSchema` |
+| `BriefStatus` | `BRIEF_STATUSES` (enum) |
+| `BriefKind` | `BRIEF_KINDS` (enum) |
+| `BriefBody` | `BriefBodySchema` |
+| `BriefReferences` | `BriefReferencesSchema` |
+| `BriefEvidenceItem` | `BriefEvidenceItemSchema` |
+| `BriefAgentWorkItem` | `BriefAgentWorkItemSchema` |
+| `BriefQuestionItem` | `BriefQuestionItemSchema` |
+| `BriefAccomplishmentItem` | `BriefAccomplishmentItemSchema` |
+| `BriefProfileGapItem` | `BriefProfileGapItemSchema` |
+| `BriefWorldSignalItem` | `BriefWorldSignalItemSchema` |
+| `AppendBriefEvidenceInput` | `AppendBriefEvidenceSchema` |
+| `DailyRhythmEntryDetail` | `DailyRhythmEntryDetailSchema` |
+| `DailyRhythmPhase` | `DAILY_RHYTHM_PHASES` (enum) |

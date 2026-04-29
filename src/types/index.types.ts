@@ -529,7 +529,13 @@ export const AddContextGroupMemberSchema = NewContextRefSchema;
 
 // Briefings
 export const BRIEF_KINDS = ['morning', 'afternoon', 'evening'] as const;
-export const BRIEF_STATUSES = ['pending', 'generating', 'ready', 'error'] as const;
+export const BRIEF_STATUSES = [
+  'pending',
+  'drafting',
+  'ready',
+  'acknowledged',
+  'error',
+] as const;
 
 export const ListBriefsQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -537,8 +543,12 @@ export const ListBriefsQuerySchema = z.object({
 });
 
 export const GenerateBriefSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  kind: z.enum(BRIEF_KINDS),
+  briefId: z.string().min(1).optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  kind: z.enum(BRIEF_KINDS).optional(),
 });
 
 export const UpdateBriefSchema = z.object({
@@ -547,6 +557,164 @@ export const UpdateBriefSchema = z.object({
   status: z.enum(BRIEF_STATUSES).optional(),
   references: z.string().nullable().optional(),
 });
+
+// ---- Brief body & evidence shape ----
+
+const BriefAgentWorkItemSchema = z.object({
+  kind: z.literal('agent_work'),
+  agentOutputId: z.string(),
+  agentAssignmentId: z.string().nullable().optional(),
+  agentId: z.string().nullable().optional(),
+  agentName: z.string().nullable().optional(),
+  agentEmoji: z.string().nullable().optional(),
+  title: z.string(),
+  oneLineSummary: z.string().nullable().optional(),
+  tokensIn: z.number().int().nonnegative().default(0),
+  tokensOut: z.number().int().nonnegative().default(0),
+  durationMs: z.number().int().nonnegative().nullable().optional(),
+  endedAt: z.string(),
+});
+
+const BriefQuestionItemSchema = z.object({
+  kind: z.literal('open_question'),
+  questionId: z.string(),
+  prompt: z.string(),
+  source: z.enum(['agent_output', 'invocation', 'chat', 'manual']).default('manual'),
+  agentOutputId: z.string().nullable().optional(),
+  invocationId: z.string().nullable().optional(),
+  chatMessageId: z.string().nullable().optional(),
+  raisedAt: z.string(),
+});
+
+const BriefAccomplishmentItemSchema = z.object({
+  kind: z.literal('accomplishment'),
+  source: z.enum([
+    'task',
+    'requirement',
+    'slot',
+    'status_strip',
+    'daily_note',
+    'chat',
+  ]),
+  refId: z.string(),
+  title: z.string(),
+  detail: z.string().nullable().optional(),
+  occurredAt: z.string(),
+});
+
+const BriefProfileGapItemSchema = z.object({
+  kind: z.literal('profile_gap'),
+  profileSectionId: z.string(),
+  profileEntryId: z.string().nullable().optional(),
+  prompt: z.string(),
+  raisedAt: z.string(),
+});
+
+const BriefWorldSignalItemSchema = z.object({
+  kind: z.literal('world_signal'),
+  provider: z.string(),
+  headline: z.string(),
+  detail: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+  occurredAt: z.string(),
+});
+
+export const BriefEvidenceItemSchema = z.discriminatedUnion('kind', [
+  BriefAgentWorkItemSchema,
+  BriefQuestionItemSchema,
+  BriefAccomplishmentItemSchema,
+  BriefProfileGapItemSchema,
+  BriefWorldSignalItemSchema,
+]);
+
+export const BriefBodySchema = z.object({
+  summary: z.string(),
+  sections: z.object({
+    agentWork: z.array(BriefAgentWorkItemSchema).default([]),
+    openQuestions: z.array(BriefQuestionItemSchema).default([]),
+    userAccomplishments: z.array(BriefAccomplishmentItemSchema).default([]),
+    profileGaps: z.array(BriefProfileGapItemSchema).default([]),
+    worldSignal: z.array(BriefWorldSignalItemSchema).default([]),
+  }),
+});
+
+export const BriefReferencesSchema = z.object({
+  agentOutputIds: z.array(z.string()).default([]),
+  invocationIds: z.array(z.string()).default([]),
+  taskIds: z.array(z.string()).default([]),
+  requirementIds: z.array(z.string()).default([]),
+  profileEntryIds: z.array(z.string()).default([]),
+  profileSectionIds: z.array(z.string()).default([]),
+  slotIds: z.array(z.string()).default([]),
+  chatMessageIds: z.array(z.string()).default([]),
+  urls: z.array(z.string()).default([]),
+  synthesisFailed: z.boolean().optional(),
+});
+
+export const AppendBriefEvidenceSchema = z.object({
+  item: BriefEvidenceItemSchema,
+});
+
+export type BriefAgentWorkItem = z.infer<typeof BriefAgentWorkItemSchema>;
+export type BriefQuestionItem = z.infer<typeof BriefQuestionItemSchema>;
+export type BriefAccomplishmentItem = z.infer<typeof BriefAccomplishmentItemSchema>;
+export type BriefProfileGapItem = z.infer<typeof BriefProfileGapItemSchema>;
+export type BriefWorldSignalItem = z.infer<typeof BriefWorldSignalItemSchema>;
+export type BriefEvidenceItem = z.infer<typeof BriefEvidenceItemSchema>;
+export type BriefBody = z.infer<typeof BriefBodySchema>;
+export type BriefReferences = z.infer<typeof BriefReferencesSchema>;
+export type AppendBriefEvidenceInput = z.infer<typeof AppendBriefEvidenceSchema>;
+
+export const EMPTY_BRIEF_BODY: BriefBody = {
+  summary: '',
+  sections: {
+    agentWork: [],
+    openQuestions: [],
+    userAccomplishments: [],
+    profileGaps: [],
+    worldSignal: [],
+  },
+};
+
+export const EMPTY_BRIEF_REFERENCES: BriefReferences = {
+  agentOutputIds: [],
+  invocationIds: [],
+  taskIds: [],
+  requirementIds: [],
+  profileEntryIds: [],
+  profileSectionIds: [],
+  slotIds: [],
+  chatMessageIds: [],
+  urls: [],
+};
+
+// ---- Daily rhythm ----
+export const DAILY_RHYTHM_SECTION_ID = 'daily_rhythm';
+export const DAILY_RHYTHM_PHASES = ['morning', 'afternoon', 'evening', 'overnight'] as const;
+export type DailyRhythmPhase = (typeof DAILY_RHYTHM_PHASES)[number];
+
+export const DailyRhythmEntryDetailSchema = z.object({
+  start: z.string().regex(/^\d{2}:\d{2}$/),
+  end: z.string().regex(/^\d{2}:\d{2}$/),
+  userActive: z.boolean(),
+});
+
+export type DailyRhythmEntryDetail = z.infer<typeof DailyRhythmEntryDetailSchema>;
+
+export const DEFAULT_DAILY_RHYTHM: Record<DailyRhythmPhase, DailyRhythmEntryDetail> = {
+  morning: { start: '04:30', end: '12:30', userActive: true },
+  afternoon: { start: '12:30', end: '17:00', userActive: true },
+  evening: { start: '17:00', end: '21:00', userActive: true },
+  overnight: { start: '21:00', end: '04:30', userActive: false },
+};
+
+// Reveal-time labels per the brief reveal table. Stored as 24h strings so
+// computeBriefWindow can do straight string comparisons against the rhythm.
+export const BRIEF_REVEAL_TIMES: Record<'morning' | 'afternoon' | 'evening', string> = {
+  morning: '07:00',
+  afternoon: '12:30',
+  evening: '19:00',
+};
 
 // ---------------------------------------------------------------------------
 // Inferred types
@@ -592,3 +760,5 @@ export type AddContextGroupMemberInput = z.infer<typeof AddContextGroupMemberSch
 export type ListBriefsQuery = z.infer<typeof ListBriefsQuerySchema>;
 export type GenerateBriefInput = z.infer<typeof GenerateBriefSchema>;
 export type UpdateBriefInput = z.infer<typeof UpdateBriefSchema>;
+export type BriefStatus = (typeof BRIEF_STATUSES)[number];
+export type BriefKind = (typeof BRIEF_KINDS)[number];

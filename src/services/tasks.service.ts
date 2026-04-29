@@ -17,7 +17,9 @@ import {
   type CreateTaskInput,
   type UpdateTaskInput,
   type DoneTaskInput,
+  type BriefAccomplishmentItem,
 } from '../types/index.types.js';
+import { appendEvidenceForInstant } from './briefs.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -255,6 +257,16 @@ export async function doneTask(id: string, input: DoneTaskInput) {
     .update(tasks)
     .set({ status: 'done', summary: input.summary, completedAt, updatedAt: completedAt })
     .where(eq(tasks.id, id));
+
+  const item: BriefAccomplishmentItem = {
+    kind: 'accomplishment',
+    source: 'task',
+    refId: id,
+    title: existing.displayName,
+    detail: input.summary ?? null,
+    occurredAt: completedAt,
+  };
+  await appendEvidenceForInstant(completedAt, item).catch(() => {});
 
   return loadTaskDetail(id);
 }

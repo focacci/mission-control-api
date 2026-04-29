@@ -2,7 +2,13 @@ import { eq, and, asc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import { tasks, taskRequirements, requirementTests } from '../db/schema.js';
-import { AppError, notFound } from '../types/index.types.js';
+import {
+  AppError,
+  notFound,
+  now,
+  type BriefAccomplishmentItem,
+} from '../types/index.types.js';
+import { appendEvidenceForInstant } from './briefs.service.js';
 
 // ---------------------------------------------------------------------------
 // Requirements
@@ -46,7 +52,21 @@ export async function updateRequirement(
     throw new AppError(400, 'No requirement updates provided');
   }
 
+  const wasCompleted = req.completed;
   await db.update(taskRequirements).set(updates).where(eq(taskRequirements.id, reqId));
+
+  if (patch.completed === true && !wasCompleted) {
+    const occurredAt = now();
+    const item: BriefAccomplishmentItem = {
+      kind: 'accomplishment',
+      source: 'requirement',
+      refId: reqId,
+      title: req.description,
+      detail: null,
+      occurredAt,
+    };
+    await appendEvidenceForInstant(occurredAt, item).catch(() => {});
+  }
 
   return loadRequirement(reqId);
 }

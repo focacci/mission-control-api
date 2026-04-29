@@ -461,23 +461,29 @@ Members of a context group. Same shape as `pinned_contexts` plus a `group_id` FK
 
 ## `briefs`
 
-Morning / afternoon / evening snapshot the agent generates (or the user authors manually) for a given day. At most one row per `(date, kind)` — enforced by `briefs_date_kind_unique`.
+Morning / afternoon / evening snapshot the agent drafts continuously and freezes at reveal time (or the user authors manually) for a given day. At most one row per `(date, kind)` — enforced by `briefs_date_kind_unique`.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text` PK | nanoid |
 | `date` | `text` | `YYYY-MM-DD` |
 | `kind` | `text` enum | `morning` \| `afternoon` \| `evening` |
-| `status` | `text` enum | `pending` \| `generating` \| `ready` \| `error` — default `pending` |
+| `status` | `text` enum | `pending` \| `drafting` \| `ready` \| `acknowledged` \| `error` — default `pending` |
 | `title` | `text` nullable | |
-| `body` | `text` nullable | markdown |
-| `references` | `text` nullable | JSON: `{tasks: string[], slots: string[], initiatives: string[]}` |
+| `body` | `text` nullable | JSON-serialized `BriefBody` (`{ summary, sections: { agentWork, openQuestions, userAccomplishments, profileGaps, worldSignal } }`); legacy hand-authored rows may be plain text |
+| `references` | `text` nullable | JSON-serialized `BriefReferences` index of every entity touched (`agentOutputIds`, `invocationIds`, `taskIds`, `requirementIds`, `profileEntryIds`, `profileSectionIds`, `slotIds`, `chatMessageIds`, `urls`, plus optional `synthesisFailed` flag) |
 | `invocation_id` | `text` nullable | `agent_invocations.id` that produced this (soft link — no FK) |
-| `generated_at` | `text` nullable | ISO timestamp |
+| `generated_at` | `text` nullable | ISO timestamp; set by `finalizeBrief` |
+| `reveal_at` | `text` nullable | ISO timestamp the brief becomes revealable; frozen at stub creation from the user's daily rhythm |
+| `window_start` | `text` nullable | ISO timestamp; start of the window this brief covers |
+| `window_end` | `text` nullable | ISO timestamp; end of the window — equals `reveal_at` for non-error briefs |
+| `acknowledged_at` | `text` nullable | ISO timestamp; first time the user opened the brief |
 | `created_at` | `text` | ISO timestamp |
 | `updated_at` | `text` | ISO timestamp |
 
 **Indexes:** unique composite `(date, kind)`.
+
+**Status lifecycle** — `pending` (stubbed, no evidence yet) → `drafting` (evidence appended, not yet revealable) → `ready` (frozen, user can view) → `acknowledged` (user opened it). `error` is set if the synthesis pipeline fails at finalize.
 
 ---
 

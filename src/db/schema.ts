@@ -289,14 +289,23 @@ export const briefs = sqliteTable(
     id: text('id').primaryKey(),
     date: text('date').notNull(),
     kind: text('kind', { enum: ['morning', 'afternoon', 'evening'] }).notNull(),
-    status: text('status', { enum: ['pending', 'generating', 'ready', 'error'] })
+    status: text('status', {
+      enum: ['pending', 'drafting', 'ready', 'acknowledged', 'error'],
+    })
       .notNull()
       .default('pending'),
     title: text('title'),
+    // JSON-serialized BriefBody (see types/index.types.ts). Plain freeform text
+    // is still accepted for hand-authored briefs and the legacy fallback path.
     body: text('body'),
+    // JSON-serialized BriefReferences index for "which briefs touch X?" queries.
     references: text('references'),
     invocationId: text('invocation_id'),
     generatedAt: text('generated_at'),
+    revealAt: text('reveal_at'),
+    windowStart: text('window_start'),
+    windowEnd: text('window_end'),
+    acknowledgedAt: text('acknowledged_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

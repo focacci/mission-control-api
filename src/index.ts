@@ -25,6 +25,7 @@ import { AppError } from './types/index.types.js';
 import { ZodError } from 'zod';
 import { initGatewayClient, loadOrCreateDeviceIdentity } from './agent/gatewayClient.js';
 import { startSlotTicker } from './agent/slotTicker.js';
+import { ensureDailyRhythmSeeded } from './services/profile.service.js';
 import path from 'node:path';
 
 const PORT = Number(process.env.PORT ?? 3737);
@@ -114,6 +115,15 @@ await app.register(contextGroupsRoutes);
 await app.register(briefsRoutes);
 await app.register(cardsRoutes);
 await app.register(workspaceRoutes);
+
+// ---------------------------------------------------------------------------
+// One-time profile seeders that the rest of the app depends on.
+// ---------------------------------------------------------------------------
+try {
+  await ensureDailyRhythmSeeded();
+} catch (err) {
+  app.log.warn({ err }, 'ensureDailyRhythmSeeded failed; briefs will use defaults');
+}
 
 // ---------------------------------------------------------------------------
 // Slot ticker — fires due slots every 60s

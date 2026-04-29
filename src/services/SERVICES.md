@@ -139,6 +139,13 @@
   - [`updateBrief`](#updatebriefid-input)
   - [`deleteBrief`](#deletebriefid)
   - [`upsertStubBrief`](#upsertstubbriefdate-kind)
+  - [`computeBriefWindow`](#computebriefwindowdate-kind)
+  - [`findBriefForInstant`](#findbriefforinstantinstant)
+  - [`appendBriefEvidence`](#appendbriefevidencebriefid-item)
+  - [`appendEvidenceForInstant`](#appendevidenceforinstantoccurredat-item)
+  - [`finalizeBrief`](#finalizebriefbriefid)
+  - [`maybeLazyFinalize`](#maybelazyfinalizebriefid-asof)
+  - [`acknowledgeBrief`](#acknowledgebriefbriefid)
 - [Pending Parts Service](#pending-parts-service)
   - [`getActiveInvocationId`](#getactiveinvocationidsessionid)
   - [`enqueuePart`](#enqueuepartsessionid-part)
@@ -1102,6 +1109,22 @@ Partial update. Nullable fields (`detail`, `source`) accept `null` to clear. Bum
 
 Hard-deletes the entry and bumps the parent section's `updatedAt`.
 
+### `ensureDailyRhythmSeeded()`
+
+```ts
+ensureDailyRhythmSeeded(): Promise<void>
+```
+
+Idempotently seeds the `daily_rhythm` profile section + four phase entries (`Morning`, `Afternoon`, `Evening`, `Overnight`), each storing a JSON `{ start, end, userActive }` blob in `detail`. Called from `src/index.ts` startup and `src/db/seed.ts`. Existing rows are left untouched so user edits survive re-seeding. Drives the Briefings window math via `getDailyRhythm()`.
+
+### `getDailyRhythm()`
+
+```ts
+getDailyRhythm(): Promise<Record<DailyRhythmPhase, { start: string; end: string; userActive: boolean }>>
+```
+
+Reads the four phase entries under `daily_rhythm`. Falls back to `DEFAULT_DAILY_RHYTHM` for any phase that's missing or has malformed JSON, so callers always get a complete map. Used by `briefs.service.computeBriefWindow`.
+
 ---
 
 ## Context Groups Service
@@ -1160,7 +1183,7 @@ Deletes the member, bumping the group's `updatedAt`. Throws `AppError(404)` if t
 
 ## Briefs Service
 
-Reads and writes morning/afternoon/evening briefings. Generation itself is delegated to the agent runner (Track C); until it ships, `generateBrief` returns `AppError(501)` and briefs can still be authored manually via `updateBrief`. See [briefs.service.ts](briefs.service.ts).
+Reads and writes morning/afternoon/evening briefings, drives the continuous-drafting pipeline, and freezes briefs at reveal time. Phase 2 ships the cheap evidence-append path (no LLM); Phase 3 will add LLM synthesis behind the same `finalizeBrief` entry point. See [briefs.service.ts](briefs.service.ts).
 
 ### `listBriefs(opts)`
 
@@ -1189,7 +1212,11 @@ Always returns all three slots, filling missing ones with `null`.
 
 ### `generateBrief(input)`
 
-Throws `AppError(501)` until the agent runner is wired up. Signature takes `{ date, kind }` and will return `{ briefId, invocationId }` once Track C lands.
+```ts
+generateBrief(input: { briefId?: string; date?: string; kind?: BriefKind }): Promise<Brief>
+```
+
+Manual regenerate — proxies to `finalizeBrief` for the resolved id. Accepts either an explicit `briefId` or a `(date, kind)` pair to look one up. Throws `AppError(400)` if neither shape is provided, `AppError(404)` if no matching row exists. Phase 2 ships without LLM synthesis, so this just freezes the current evidence with a deterministic fallback summary.
 
 ### `updateBrief(id, input)`
 
@@ -1201,7 +1228,47 @@ Hard delete. Throws `AppError(404)` if the id is unknown.
 
 ### `upsertStubBrief(date, kind)`
 
-Internal helper for Track C: returns the existing `(date, kind)` row if one exists, otherwise inserts a `pending` stub so the runner has a row to update as it streams output. Not exposed via the REST API.
+Returns the existing `(date, kind)` row if one exists, otherwise inserts a `pending` stub. The stub is seeded with `revealAt`, `windowStart`, `windowEnd` computed from the user's daily rhythm at insert time so the values are frozen against later rhythm edits (per BRIEFINGS_PLAN §10 Q3). If an older row is missing those columns (pre-migration), they're backfilled.
+
+### `computeBriefWindow(date, kind)`
+
+```ts
+computeBriefWindow(date: string, kind: BriefKind): Promise<{
+  windowStart: string;
+  windowEnd: string;
+  revealAt: string;
+}>
+```
+
+Computes the reveal-time + covered-window for a `(date, kind)` from `BRIEF_REVEAL_TIMES` and the user's daily rhythm. Morning briefs cover the previous day's evening reveal → today's morning reveal; afternoon covers morning → afternoon; evening covers afternoon → evening. Used by `upsertStubBrief`.
+
+### `findBriefForInstant(instant)`
+
+Returns the brief whose `[windowStart, windowEnd]` covers `instant` (an ISO timestamp), or `null` if no such row exists. Used by evidence-append hooks that don't already know which brief their event belongs to.
+
+### `appendBriefEvidence(briefId, item)`
+
+```ts
+appendBriefEvidence(briefId: string, item: unknown): Promise<Brief>
+```
+
+Cheap-path evidence append. Validates `item` against `BriefEvidenceItemSchema`, merges it into the brief's `body.sections.<kind>` array (idempotent on the natural key per kind — e.g. `agentOutputId` for agent_work, `(source, refId)` for accomplishments), and updates the `references` index. Auto-transitions `pending → drafting`. Throws `AppError(409)` if the brief is already `ready` or `acknowledged` — reveal-time evidence should be deferred to the next brief, not retro-applied.
+
+### `appendEvidenceForInstant(occurredAt, item)`
+
+Convenience wrapper used by hooks (agent_output completion, task done, requirement check, …). Resolves the live brief whose window covers `occurredAt` via `findBriefForInstant`; if no brief is found (e.g. tonight's event landing in the post-evening gap) it lazy-stubs the next morning brief and appends there. Returns `{ briefId }` or `null` if the timestamp can't be mapped to any window. Best-effort — callers should `.catch(() => {})` so brief failures never block the user-facing operation.
+
+### `finalizeBrief(briefId)`
+
+Idempotent freeze. If the brief is already `ready`/`acknowledged`, returns it unchanged. Otherwise: writes a deterministic fallback summary derived from the accumulated evidence (Phase 3 will replace this with an LLM call), transitions to `ready`, and stamps `generatedAt`. Throws `AppError(404)` for unknown ids.
+
+### `maybeLazyFinalize(briefId, asOf?)`
+
+Lazy-finalize on read. If the brief's `revealAt` has passed and the row is still `pending`/`drafting`, calls `finalizeBrief`; otherwise returns the row unchanged. Wired into `GET /api/briefs/:id`. Defaults `asOf` to `now()`.
+
+### `acknowledgeBrief(briefId)`
+
+Marks the brief as opened. Auto-finalizes a still-drafting brief past `revealAt` before recording the acknowledgement so the user never sees a half-frozen brief. Idempotent — calling on an already-`acknowledged` row returns it unchanged. Sets `acknowledgedAt` to the first-open timestamp.
 
 ---
 

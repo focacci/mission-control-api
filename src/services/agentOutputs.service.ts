@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, max } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
-import { agentAssignments, agentOutputs, agentOutputSteps } from '../db/schema.js';
+import { agentAssignments, agents, agentOutputs, agentOutputSteps } from '../db/schema.js';
+import { appendEvidenceForInstant } from './briefs.service.js';
 import {
   AppError,
   now,
@@ -11,6 +12,7 @@ import {
   type CompleteAgentOutputInput,
   type CreateAgentOutputInput,
   type FailAgentOutputInput,
+  type BriefAgentWorkItem,
 } from '../types/index.types.js';
 
 export type AgentOutput = typeof agentOutputs.$inferSelect;
@@ -124,6 +126,7 @@ export async function completeAgentOutput(
     throw new AppError(409, `Cannot complete: output status is '${output.status}'`);
   }
 
+  const endedAt = now();
   await db
     .update(agentOutputs)
     .set({
@@ -131,11 +134,63 @@ export async function completeAgentOutput(
       response: input.response,
       tokensIn: input.tokensIn,
       tokensOut: input.tokensOut,
-      endedAt: now(),
+      endedAt,
     })
     .where(eq(agentOutputs.id, outputId));
 
-  return loadOutput(outputId);
+  const updated = await loadOutput(outputId);
+  await recordAgentOutputBriefEvidence(updated, endedAt).catch(() => {
+    // Brief evidence is best-effort — never block the agent runner on it.
+  });
+  return updated;
+}
+
+async function recordAgentOutputBriefEvidence(
+  output: AgentOutput,
+  endedAt: string,
+): Promise<void> {
+  let agentName: string | null = null;
+  let agentEmoji: string | null = null;
+  if (output.agentId) {
+    const [agentRow] = await db.select().from(agents).where(eq(agents.id, output.agentId));
+    agentName = agentRow?.identityName ?? agentRow?.name ?? null;
+    agentEmoji = agentRow?.identityEmoji ?? null;
+  }
+
+  const [aa] = await db
+    .select()
+    .from(agentAssignments)
+    .where(eq(agentAssignments.id, output.agentAssignmentId));
+
+  const startedMs = Date.parse(output.startedAt);
+  const endedMs = Date.parse(endedAt);
+  const durationMs = Number.isFinite(startedMs) && Number.isFinite(endedMs)
+    ? Math.max(0, endedMs - startedMs)
+    : null;
+
+  const item: BriefAgentWorkItem = {
+    kind: 'agent_work',
+    agentOutputId: output.id,
+    agentAssignmentId: output.agentAssignmentId,
+    agentId: output.agentId ?? undefined,
+    agentName: agentName ?? undefined,
+    agentEmoji: agentEmoji ?? undefined,
+    title: aa?.title ?? `Agent output ${output.id.slice(0, 6)}`,
+    oneLineSummary: oneLine(output.response) ?? aa?.description ?? undefined,
+    tokensIn: output.tokensIn,
+    tokensOut: output.tokensOut,
+    durationMs: durationMs ?? undefined,
+    endedAt,
+  };
+
+  await appendEvidenceForInstant(endedAt, item);
+}
+
+function oneLine(text: string | null): string | undefined {
+  if (!text) return undefined;
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > 160 ? `${trimmed.slice(0, 157)}…` : trimmed;
 }
 
 export async function failAgentOutput(

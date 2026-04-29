@@ -418,15 +418,21 @@ Morning / afternoon / evening briefings per day. At most one brief per `(date, k
 |--------|------|-------------|-------------|----------|
 | `GET` | `/api/briefs` | List briefs within a date range | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both required) | `Brief[]` ordered by `date desc` then `kind` (morning → afternoon → evening) |
 | `GET` | `/api/briefs/by-date/:date` | Get all three briefs for a single date | — | `{ date, morning: Brief \| null, afternoon: Brief \| null, evening: Brief \| null }` |
-| `GET` | `/api/briefs/:id` | Get a single brief | — | `Brief` |
-| `POST` | `/api/briefs/generate` | Kick agent brief generation | `{ date, kind }` | `501` until Track C (agent runner) ships |
+| `GET` | `/api/briefs/:id` | Get a single brief; auto-finalizes if `revealAt` has passed and the brief is still drafting | — | `Brief` |
+| `POST` | `/api/briefs/generate` | Manual regenerate — re-runs finalize over the existing evidence | `{ briefId }` or `{ date, kind }` | `Brief` |
+| `POST` | `/api/briefs/:id/evidence` | Append a typed evidence item to the brief draft (cheap path; no LLM) | `{ item: BriefEvidenceItem }` | `Brief` |
+| `POST` | `/api/briefs/:id/finalize` | Freeze the brief at its current evidence; transitions `drafting → ready` | — | `Brief` |
+| `POST` | `/api/briefs/:id/acknowledge` | Mark the brief as opened by the user; auto-finalizes a still-drafting brief past `revealAt` | — | `Brief` |
 | `PATCH` | `/api/briefs/:id` | Edit a brief (manual authoring) | `{ title?, body?, status?, references? }` | `Brief` |
 | `DELETE` | `/api/briefs/:id` | Delete a brief | — | `204` |
 
 **Notes:**
-- `kind` is one of `morning \| afternoon \| evening`; `status` is one of `pending \| generating \| ready \| error`.
-- `references` is a JSON-encoded string: `{tasks: string[], slots: string[], initiatives: string[]}`.
-- `POST /generate` currently returns `501` with a clear message. Once Track C lands it will enqueue an agent run and return `202 { briefId, invocationId }` — consumers already holding the id can poll `GET /api/briefs/:id`.
+- `kind` is one of `morning \| afternoon \| evening`; `status` is one of `pending \| drafting \| ready \| acknowledged \| error`.
+- `body` is a JSON-encoded `BriefBody`: `{ summary, sections: { agentWork, openQuestions, userAccomplishments, profileGaps, worldSignal } }`. Each section item is a typed discriminated union — see `BriefEvidenceItemSchema` in `src/types/index.types.ts`.
+- `references` is a JSON-encoded `BriefReferences` index: `{ agentOutputIds, invocationIds, taskIds, requirementIds, profileEntryIds, profileSectionIds, slotIds, chatMessageIds, urls, synthesisFailed? }`.
+- `POST /:id/evidence` is the cheap path: callers (server-side hooks for agent_output completion, task done, etc.) write a typed item directly into the body's section array. Idempotent on natural keys per section. Returns `409` if the brief is already `ready` or `acknowledged`.
+- `POST /:id/finalize` is idempotent — safe to call multiple times. Phase 2 ships without LLM synthesis; the finalizer writes a deterministic fallback summary.
+- `POST /generate` is the manual regenerate path; same effect as `finalize` for a brief by `(date, kind)`.
 - `PATCH` accepts `title: null` / `body: null` / `references: null` to explicitly clear those fields.
 
 ---

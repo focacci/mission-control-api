@@ -1049,7 +1049,10 @@ async function dispatchBriefings(action: string, args: Args): Promise<unknown> {
         title: optArg<string | null>(args, 'title'),
         body: optArg<string | null>(args, 'body'),
         references: optArg<string | null>(args, 'references'),
-        status: optArg<'pending' | 'generating' | 'ready' | 'error'>(args, 'status'),
+        status: optArg<'pending' | 'drafting' | 'ready' | 'acknowledged' | 'error'>(
+          args,
+          'status',
+        ),
       });
     case 'delete':
       await briefsService.deleteBrief(requireArg<string>(args, 'id'));

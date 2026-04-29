@@ -9,6 +9,7 @@ import { nanoid } from 'nanoid';
 import { db } from './client.js';
 import { goals, initiatives, tasks, taskRequirements, requirementTests, profileSections } from './schema.js';
 import { eq } from 'drizzle-orm';
+import { ensureDailyRhythmSeeded } from '../services/profile.service.js';
 
 config();
 
@@ -410,6 +411,11 @@ async function main() {
   console.log('');
   console.log('👤 Seeding profile sections...');
   await seedProfileSections();
+
+  console.log('');
+  console.log('🕒 Seeding daily rhythm...');
+  await ensureDailyRhythmSeeded();
+  console.log('  ✓ daily_rhythm section + phase entries');
 
   console.log('');
   console.log('✅ Seed complete.');
