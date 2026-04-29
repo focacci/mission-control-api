@@ -1,5 +1,10 @@
-import { claimSlotForRun, findDueSlots } from '../services/schedule.service.js';
+import {
+  claimSlotForRun,
+  findDueBriefSlots,
+  findDueSlots,
+} from '../services/schedule.service.js';
 import { nowLocalDatetime } from '../types/index.types.js';
+import { runDueBriefSlot } from './briefSlotRunner.js';
 import { runDueSlot } from './slotRunner.js';
 
 export interface StartSlotTickerOptions {
@@ -26,7 +31,9 @@ export function startSlotTicker(opts: StartSlotTickerOptions = {}): () => void {
     if (stopped || isRunning) return;
     isRunning = true;
     try {
-      const due = await findDueSlots(nowLocalDatetime());
+      const localNow = nowLocalDatetime();
+
+      const due = await findDueSlots(localNow);
       for (const slot of due) {
         if (stopped) break;
         const claimed = claimSlotForRun(slot.id);
@@ -35,6 +42,24 @@ export function startSlotTicker(opts: StartSlotTickerOptions = {}): () => void {
           await runDueSlot(claimed);
         } catch (err) {
           log.warn(`[slotTicker] runDueSlot threw for slot ${claimed.id}: ${String(err)}`);
+        }
+      }
+
+      // Brief reveal slots: drain in the same tick so a missed minute doesn't
+      // delay the next reveal. `claimSlotForRun` flips status → in-progress
+      // atomically, then `runDueBriefSlot` calls `finalizeBrief` and
+      // `doneSlot`.
+      const dueBriefs = await findDueBriefSlots(localNow);
+      for (const slot of dueBriefs) {
+        if (stopped) break;
+        const claimed = claimSlotForRun(slot.id);
+        if (!claimed) continue;
+        try {
+          await runDueBriefSlot(claimed);
+        } catch (err) {
+          log.warn(
+            `[slotTicker] runDueBriefSlot threw for slot ${claimed.id}: ${String(err)}`,
+          );
         }
       }
     } catch (err) {

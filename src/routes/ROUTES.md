@@ -419,7 +419,7 @@ Morning / afternoon / evening briefings per day. At most one brief per `(date, k
 | `GET` | `/api/briefs` | List briefs within a date range | `?from=YYYY-MM-DD&to=YYYY-MM-DD` (both required) | `Brief[]` ordered by `date desc` then `kind` (morning → afternoon → evening) |
 | `GET` | `/api/briefs/by-date/:date` | Get all three briefs for a single date | — | `{ date, morning: Brief \| null, afternoon: Brief \| null, evening: Brief \| null }` |
 | `GET` | `/api/briefs/:id` | Get a single brief; auto-finalizes if `revealAt` has passed and the brief is still drafting | — | `Brief` |
-| `POST` | `/api/briefs/generate` | Manual regenerate — re-runs finalize over the existing evidence | `{ briefId }` or `{ date, kind }` | `Brief` |
+| `POST` | `/api/briefs/generate` | Manual regenerate — re-runs finalize (incl. LLM synthesis) over the existing evidence | `{ briefId }` or `{ date, kind }`; optional `force: true` re-runs synthesis on already-revealed briefs | `Brief` |
 | `POST` | `/api/briefs/:id/evidence` | Append a typed evidence item to the brief draft (cheap path; no LLM) | `{ item: BriefEvidenceItem }` | `Brief` |
 | `POST` | `/api/briefs/:id/finalize` | Freeze the brief at its current evidence; transitions `drafting → ready` | — | `Brief` |
 | `POST` | `/api/briefs/:id/acknowledge` | Mark the brief as opened by the user; auto-finalizes a still-drafting brief past `revealAt` | — | `Brief` |
@@ -431,8 +431,8 @@ Morning / afternoon / evening briefings per day. At most one brief per `(date, k
 - `body` is a JSON-encoded `BriefBody`: `{ summary, sections: { agentWork, openQuestions, userAccomplishments, profileGaps, worldSignal } }`. Each section item is a typed discriminated union — see `BriefEvidenceItemSchema` in `src/types/index.types.ts`.
 - `references` is a JSON-encoded `BriefReferences` index: `{ agentOutputIds, invocationIds, taskIds, requirementIds, profileEntryIds, profileSectionIds, slotIds, chatMessageIds, urls, synthesisFailed? }`.
 - `POST /:id/evidence` is the cheap path: callers (server-side hooks for agent_output completion, task done, etc.) write a typed item directly into the body's section array. Idempotent on natural keys per section. Returns `409` if the brief is already `ready` or `acknowledged`.
-- `POST /:id/finalize` is idempotent — safe to call multiple times. Phase 2 ships without LLM synthesis; the finalizer writes a deterministic fallback summary.
-- `POST /generate` is the manual regenerate path; same effect as `finalize` for a brief by `(date, kind)`.
+- `POST /:id/finalize` is idempotent — safe to call multiple times. Phase 3 wires LLM synthesis: the finalizer invokes the agent runner to write `body.summary` from the accumulated evidence. If synthesis fails (gateway down / runner error / empty output) the finalizer falls back to a deterministic count-summary and sets `references.synthesisFailed = true`. The synthesis invocation id is persisted on `Brief.invocationId`. The slot ticker auto-fires this at each reveal time (`07:00` / `12:30` / `19:00`) via the `type='brief'` schedule slots.
+- `POST /generate` is the manual regenerate path; same effect as `finalize` for a brief by `(date, kind)`. Pass `force: true` to re-run synthesis on a `ready`/`acknowledged` brief.
 - `PATCH` accepts `title: null` / `body: null` / `references: null` to explicitly clear those fields.
 
 ---

@@ -688,10 +688,11 @@ Query for `GET /api/briefs`. Both dates are required; service throws `400` if `f
   briefId?: string,
   date?:    string (YYYY-MM-DD),
   kind?:    'morning' | 'afternoon' | 'evening',
+  force?:   boolean,
 }
 ```
 
-Body for `POST /api/briefs/generate`. Provide either `briefId` or both `date` and `kind`. Phase 2 ships without LLM synthesis, so this endpoint just freezes the brief at its current evidence with a deterministic fallback summary.
+Body for `POST /api/briefs/generate`. Provide either `briefId` or both `date` and `kind`. Re-runs LLM synthesis over the accumulated evidence and freezes the brief. With `force: true`, re-runs synthesis on an already-revealed brief (manual regenerate from the iOS debug menu); without it, an already-`ready`/`acknowledged` row returns unchanged.
 
 #### `UpdateBriefSchema`
 

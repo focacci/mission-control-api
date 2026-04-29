@@ -619,6 +619,27 @@ export async function findDueSlots(
     .orderBy(asc(scheduleSlots.datetime));
 }
 
+/**
+ * Returns brief-type slots whose reveal `datetime` has arrived but which are
+ * still pending. The slot ticker drains these alongside agent slots — each
+ * brief slot triggers `finalizeBrief` for the corresponding (date, kind).
+ */
+export async function findDueBriefSlots(
+  nowLocalDatetime: string,
+): Promise<ScheduleSlotRow[]> {
+  return db
+    .select()
+    .from(scheduleSlots)
+    .where(
+      and(
+        lte(scheduleSlots.datetime, nowLocalDatetime),
+        eq(scheduleSlots.status, 'pending'),
+        eq(scheduleSlots.type, 'brief'),
+      ),
+    )
+    .orderBy(asc(scheduleSlots.datetime));
+}
+
 export function claimSlotForRun(slotId: string): ScheduleSlotRow | null {
   return db.transaction(tx => {
     const current = tx

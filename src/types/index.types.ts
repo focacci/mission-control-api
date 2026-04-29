@@ -549,6 +549,8 @@ export const GenerateBriefSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
   kind: z.enum(BRIEF_KINDS).optional(),
+  // Phase 3 manual regenerate: re-run synthesis on already-revealed briefs.
+  force: z.boolean().optional(),
 });
 
 export const UpdateBriefSchema = z.object({

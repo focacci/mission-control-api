@@ -69,10 +69,12 @@
   - [`deleteSlotOutput`](#deleteslotoutputslotid-outputid)
   - [`suggestSlotsForAssignment`](#suggestslotsforassignmentaaid-weestart-limit)
   - [`findDueSlots`](#finddueslotsnowlocaldatetime)
+  - [`findDueBriefSlots`](#finddubriefslotsnowlocaldatetime)
   - [`claimSlotForRun`](#claimslotforrunslotid)
 - [Slot Runner](#slot-runner)
   - [`runDueSlot`](#rundueslotslot)
   - [`startSlotTicker`](#startslottickeropts)
+  - [`runDueBriefSlot`](#runduebriefslotslot)
 - [Board Service](#board-service)
   - [`getBoard`](#getboard)
 - [Agents Service](#agents-service)
@@ -143,7 +145,7 @@
   - [`findBriefForInstant`](#findbriefforinstantinstant)
   - [`appendBriefEvidence`](#appendbriefevidencebriefid-item)
   - [`appendEvidenceForInstant`](#appendevidenceforinstantoccurredat-item)
-  - [`finalizeBrief`](#finalizebriefbriefid)
+  - [`finalizeBrief`](#finalizebriefbriefid-opts)
   - [`maybeLazyFinalize`](#maybelazyfinalizebriefid-asof)
   - [`acknowledgeBrief`](#acknowledgebriefbriefid)
 - [Pending Parts Service](#pending-parts-service)
@@ -708,6 +710,14 @@ findDueSlots(nowLocalDatetime: string): Promise<ScheduleSlot[]>
 
 Returns slots whose `datetime <= nowLocalDatetime`, `status = 'pending'`, and `agentAssignmentId IS NOT NULL`, ordered by `datetime ASC`. The argument must be a wall-clock string in `APP_TZ` formatted `YYYY-MM-DDTHH:mm` — comparison against `scheduleSlots.datetime` is lexical, so passing UTC ISO would skew firing by the `APP_TZ` offset. The slot ticker uses `nowLocalDatetime()` from `index.types.ts`.
 
+### `findDueBriefSlots(nowLocalDatetime)`
+
+```ts
+findDueBriefSlots(nowLocalDatetime: string): Promise<ScheduleSlot[]>
+```
+
+Same predicate as `findDueSlots` but filtered to `type = 'brief'` (and **without** the agent-assignment requirement). The slot ticker drains these in the same tick as agent slots; each one triggers `runDueBriefSlot → finalizeBrief` for the matching `(date, kind)`.
+
 ### `claimSlotForRun(slotId)`
 
 ```ts
@@ -746,7 +756,15 @@ Never throws to its caller. Step writes are serialized through an internal promi
 startSlotTicker(opts?: { intervalMs?: number; logger?: Pick<Console, 'info'|'warn'|'error'> }): () => void
 ```
 
-Periodic scheduler. Defaults to a 60_000 ms interval (overridable via `SLOT_TICKER_INTERVAL_MS`). Holds an `isRunning` flag to drop re-entry if a tick is still draining. Per tick: queries `findDueSlots(now)`, then for each slot calls `claimSlotForRun(slot.id)` and (on success) `runDueSlot(claimed)` sequentially. Fires one tick immediately on start. Returns a stop function used for tests / SIGTERM / SIGINT shutdown.
+Periodic scheduler. Defaults to a 60_000 ms interval (overridable via `SLOT_TICKER_INTERVAL_MS`). Holds an `isRunning` flag to drop re-entry if a tick is still draining. Per tick: drains `findDueSlots(now)` (each slot → `claimSlotForRun` → `runDueSlot`), then drains `findDueBriefSlots(now)` (each brief slot → `claimSlotForRun` → `runDueBriefSlot`). Both passes run sequentially in `datetime ASC` order. Fires one tick immediately on start. Returns a stop function used for tests / SIGTERM / SIGINT shutdown.
+
+### `runDueBriefSlot(slot)`
+
+```ts
+runDueBriefSlot(slot: ScheduleSlot): Promise<void>
+```
+
+Drives a single claimed `type='brief'` slot. Maps `slot.time` (`07:00` / `12:30` / `19:00`) → `BriefKind`, calls `upsertStubBrief(slot.date, kind)` to ensure the row exists, then `finalizeBrief(brief.id)` (which in turn runs LLM synthesis or the deterministic fallback) and finally `doneSlot(slot.id, {})`. Never throws — synthesis errors are absorbed by `finalizeBrief`. Lives in `src/agent/briefSlotRunner.ts`.
 
 ---
 
@@ -1183,7 +1201,7 @@ Deletes the member, bumping the group's `updatedAt`. Throws `AppError(404)` if t
 
 ## Briefs Service
 
-Reads and writes morning/afternoon/evening briefings, drives the continuous-drafting pipeline, and freezes briefs at reveal time. Phase 2 ships the cheap evidence-append path (no LLM); Phase 3 will add LLM synthesis behind the same `finalizeBrief` entry point. See [briefs.service.ts](briefs.service.ts).
+Reads and writes morning/afternoon/evening briefings, drives the continuous-drafting pipeline, and freezes briefs at reveal time. Phase 3 wires LLM synthesis behind `finalizeBrief` — accumulated evidence is summarized by the agent runner; if synthesis fails or the gateway isn't reachable we fall back to a deterministic count-summary and tag `references.synthesisFailed = true`. See [briefs.service.ts](briefs.service.ts).
 
 ### `listBriefs(opts)`
 
@@ -1213,10 +1231,15 @@ Always returns all three slots, filling missing ones with `null`.
 ### `generateBrief(input)`
 
 ```ts
-generateBrief(input: { briefId?: string; date?: string; kind?: BriefKind }): Promise<Brief>
+generateBrief(input: {
+  briefId?: string;
+  date?: string;
+  kind?: BriefKind;
+  force?: boolean;
+}): Promise<Brief>
 ```
 
-Manual regenerate — proxies to `finalizeBrief` for the resolved id. Accepts either an explicit `briefId` or a `(date, kind)` pair to look one up. Throws `AppError(400)` if neither shape is provided, `AppError(404)` if no matching row exists. Phase 2 ships without LLM synthesis, so this just freezes the current evidence with a deterministic fallback summary.
+Manual regenerate — proxies to `finalizeBrief({ force })` for the resolved id. Accepts either an explicit `briefId` or a `(date, kind)` pair. Throws `AppError(400)` if neither shape is provided, `AppError(404)` if no matching row exists. With `force: true`, re-runs synthesis on an already-revealed brief (powers the iOS "regenerate" debug affordance); without it, an already-`ready`/`acknowledged` row returns unchanged.
 
 ### `updateBrief(id, input)`
 
@@ -1258,9 +1281,13 @@ Cheap-path evidence append. Validates `item` against `BriefEvidenceItemSchema`, 
 
 Convenience wrapper used by hooks (agent_output completion, task done, requirement check, …). Resolves the live brief whose window covers `occurredAt` via `findBriefForInstant`; if no brief is found (e.g. tonight's event landing in the post-evening gap) it lazy-stubs the next morning brief and appends there. Returns `{ briefId }` or `null` if the timestamp can't be mapped to any window. Best-effort — callers should `.catch(() => {})` so brief failures never block the user-facing operation.
 
-### `finalizeBrief(briefId)`
+### `finalizeBrief(briefId, opts?)`
 
-Idempotent freeze. If the brief is already `ready`/`acknowledged`, returns it unchanged. Otherwise: writes a deterministic fallback summary derived from the accumulated evidence (Phase 3 will replace this with an LLM call), transitions to `ready`, and stamps `generatedAt`. Throws `AppError(404)` for unknown ids.
+```ts
+finalizeBrief(briefId: string, opts?: { force?: boolean }): Promise<Brief>
+```
+
+Freeze + synthesize. If the brief is already `ready`/`acknowledged` and `force` is not set, returns it unchanged. Otherwise: invokes the agent runner via [`synthesizeBriefSummary`](../agent/briefSynthesizer.ts) — a `trigger='brief'` invocation pinned to the brief — to generate the `summary` headline from the accumulated evidence. The synthesis invocation id is persisted on `briefs.invocationId`. On success, `references.synthesisFailed` is cleared. On failure (gateway down, runner error, empty output), the existing or fallback count-summary is preserved and `references.synthesisFailed` is set. Always transitions to `ready` and stamps `generatedAt`. Throws `AppError(404)` for unknown ids.
 
 ### `maybeLazyFinalize(briefId, asOf?)`
 

@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client.js';
 import { briefs } from '../db/schema.js';
+import { synthesizeBriefSummary } from '../agent/briefSynthesizer.js';
 import { getDailyRhythm } from './profile.service.js';
 import {
   AppError,
@@ -58,9 +59,10 @@ export async function getBriefsByDate(date: string) {
 }
 
 /**
- * Manual regenerate path. Phase 2 ships without LLM synthesis, so this just
- * proxies to {@link finalizeBrief}: it computes a fallback summary from the
- * accumulated evidence and freezes the brief. Phase 3 will re-run synthesis.
+ * Manual regenerate path. Re-runs LLM synthesis on the accumulated evidence
+ * and freezes the brief. Idempotent on already-revealed briefs unless
+ * `force: true` is passed (re-runs synthesis on a `ready`/`acknowledged`
+ * brief — used by the iOS "regenerate" debug affordance).
  */
 export async function generateBrief(input: GenerateBriefInput) {
   let id = input.briefId;
@@ -75,7 +77,7 @@ export async function generateBrief(input: GenerateBriefInput) {
     if (!row) throw notFound('Brief', `${input.date}/${input.kind}`);
     id = row.id;
   }
-  return finalizeBrief(id);
+  return finalizeBrief(id, { force: input.force === true });
 }
 
 export async function updateBrief(id: string, input: UpdateBriefInput) {
@@ -406,22 +408,47 @@ export async function appendEvidenceForInstant(
 // finalize / acknowledge
 // ---------------------------------------------------------------------------
 
+export interface FinalizeBriefOptions {
+  /** Re-run synthesis on an already-revealed brief (manual regenerate path). */
+  force?: boolean;
+}
+
 /**
- * Freeze a brief. Idempotent — calling twice on a `ready`/`acknowledged`
- * brief returns the existing row unchanged. Phase 2: no LLM call. Writes a
- * deterministic fallback summary from the accumulated evidence.
+ * Freeze a brief and run LLM synthesis on the accumulated evidence. The
+ * synthesized text replaces `body.summary`; if synthesis fails or the gateway
+ * is unreachable, we fall back to a deterministic count-summary and tag
+ * `references.synthesisFailed = true` so the iOS UI can render a banner.
+ *
+ * Idempotent — calling twice on a `ready`/`acknowledged` brief returns the
+ * existing row unchanged unless `force: true` is passed.
  */
-export async function finalizeBrief(briefId: string) {
+export async function finalizeBrief(briefId: string, opts: FinalizeBriefOptions = {}) {
   const [existing] = await db.select().from(briefs).where(eq(briefs.id, briefId));
   if (!existing) throw notFound('Brief', briefId);
 
-  if (existing.status === 'ready' || existing.status === 'acknowledged') {
+  const alreadyRevealed = existing.status === 'ready' || existing.status === 'acknowledged';
+  if (alreadyRevealed && !opts.force) {
     return existing;
   }
 
   const body = parseBody(existing.body);
-  if (!body.summary) {
-    body.summary = buildFallbackSummary(body);
+  const refs = parseReferences(existing.references);
+  const fallback = buildFallbackSummary(body);
+
+  const synthesis = await synthesizeBriefSummary({
+    briefId,
+    kind: existing.kind,
+    windowStart: existing.windowStart,
+    windowEnd: existing.windowEnd,
+    body,
+  });
+
+  if (synthesis.summary && synthesis.summary.length > 0) {
+    body.summary = synthesis.summary;
+    if (refs.synthesisFailed) delete refs.synthesisFailed;
+  } else {
+    body.summary = body.summary?.trim().length ? body.summary : fallback;
+    refs.synthesisFailed = true;
   }
 
   const timestamp = now();
@@ -429,7 +456,9 @@ export async function finalizeBrief(briefId: string) {
     .update(briefs)
     .set({
       body: JSON.stringify(body),
+      references: JSON.stringify(refs),
       status: 'ready',
+      invocationId: synthesis.invocationId ?? existing.invocationId ?? null,
       generatedAt: existing.generatedAt ?? timestamp,
       updatedAt: timestamp,
     })
