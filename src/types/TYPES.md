@@ -747,7 +747,7 @@ Discriminated union (`kind`) for items the agent or in-app hooks append to a dra
                             durationMs?; endedAt }
 { kind: 'open_question';   questionId; prompt; source: 'agent_output'|'invocation'|'chat'|'manual';
                             agentOutputId?; invocationId?; chatMessageId?; raisedAt }
-{ kind: 'accomplishment';  source: 'task'|'requirement'|'slot'|'status_strip'|'daily_note'|'chat';
+{ kind: 'accomplishment';  source: 'task'|'requirement'|'slot'|'status_strip'|'chat';
                             refId; title; detail?; occurredAt }
 { kind: 'profile_gap';     profileSectionId; profileEntryId?; prompt; raisedAt }
 { kind: 'world_signal';    provider; headline; detail?; url?; occurredAt }

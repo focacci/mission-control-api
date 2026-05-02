@@ -595,7 +595,6 @@ const BriefAccomplishmentItemSchema = z.object({
     'requirement',
     'slot',
     'status_strip',
-    'daily_note',
     'chat',
   ]),
   refId: z.string(),
